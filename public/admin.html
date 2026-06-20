@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard_ShoesAgtech — Admin</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="style.css?v=26">
+<link rel="icon" type="image/png" href="favicon.png?v=1">
+</head>
+<body>
+    <div id="dashboard">
+        <header>
+            <div class="header-left">
+                <button id="drawerToggleBtn" class="icon-btn" aria-label="Menu">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 6h18v2H3zM3 11h18v2H3zM3 16h18v2H3z"/></svg>
+                </button>
+                <div class="brand">
+                    <img class="header-logo" src="logo-icon.png?v=1" alt="Shoes Agtech">
+                    <div class="brand-sub">Shoes Agtech Monitoring<span id="connStatusDot" class="live-dot"></span></div>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button id="refreshBtn">Làm mới</button>
+                <div class="user-menu-wrap">
+                    <button id="userMenuBtn" class="icon-btn user-icon-btn" aria-label="Tài khoản">
+                        <img src="user-icon.png?v=1" alt="User">
+                    </button>
+                    <div id="userMenuDropdown" class="user-dropdown hidden">
+                        <div id="welcomeMsg" class="dropdown-welcome"></div>
+                        <a href="#" id="changePasswordMenuItem">Đổi mật khẩu</a>
+                        <a href="#" id="logoutMenuItem">Thoát</a>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div id="drawerOverlay" class="drawer-overlay hidden"></div>
+        <nav id="sideDrawer" class="side-drawer">
+            <a href="#" class="drawer-item active" data-view="users">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.7 0 8 1.3 8 4v2H4v-2c0-2.7 5.3-4 8-4zm0-2a4 4 0 1 1 0-8 4 4 0 0 1 0 8z"/></svg>
+                User
+            </a>
+            <a href="#" class="drawer-item" data-view="map">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5" y="9" width="14" height="11" rx="2"/><path d="M9 9V6a3 3 0 0 1 6 0v3"/><circle cx="9.5" cy="14.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="14.5" cy="14.5" r="1.2" fill="currentColor" stroke="none"/><path d="M9 18h6"/></svg>
+                Fleet
+            </a>
+        </nav>
+
+        <div id="changePasswordPanel" class="register-panel hidden">
+            <input id="currentPasswordCheck" type="password" placeholder="Mật khẩu hiện tại">
+            <input id="newPassword" type="password" placeholder="Mật khẩu mới">
+            <input id="newPasswordConfirm" type="password" placeholder="Nhập lại mật khẩu mới">
+            <button id="changePasswordSubmitBtn">Lưu</button>
+            <span id="changePasswordMsg"></span>
+        </div>
+
+        <div id="boardContextBar" class="board-context-bar hidden">
+            <button id="backToBoardsBtn">← Danh sách tài khoản</button>
+        </div>
+
+        <div id="statsBar" class="stats-bar hidden">
+            <div class="stat-card" style="animation-delay:0.05s">
+                <div class="stat-label">Tổng số mẫu</div>
+                <div class="stat-value" id="statCount">--</div>
+            </div>
+            <div class="stat-card" style="animation-delay:0.1s">
+                <div class="stat-label">pH trung bình</div>
+                <div class="stat-value" id="statPh">--</div>
+            </div>
+            <div class="stat-card" style="animation-delay:0.15s">
+                <div class="stat-label">Kiềm trung bình (mg/L)</div>
+                <div class="stat-value" id="statAlk">--</div>
+            </div>
+            <div class="stat-card" style="animation-delay:0.2s">
+                <div class="stat-label">Cập nhật gần nhất</div>
+                <div class="stat-value" id="statLatest">--</div>
+            </div>
+        </div>
+
+        <div id="usersPane" class="table-wrap pane hidden">
+            <h3>Tài khoản</h3>
+            <table>
+                <thead><tr><th>ID</th><th>Device UID</th><th>Username</th><th>Password</th><th>Tạo lúc</th><th>Cập nhật lần cuối</th><th>Hành động</th></tr></thead>
+                <tbody id="devicesBody"></tbody>
+            </table>
+        </div>
+
+        <div id="tablePane" class="table-wrap pane hidden">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th><th>Thiết bị</th><th>Lat</th><th>Lon</th><th>pH</th>
+                        <th>Nhiệt độ (°C)</th><th>Kiềm (mg/L)</th><th>Thời gian</th>
+                        <th>Hành động</th>
+                    </tr>
+                </thead>
+                <tbody id="recordsBody"></tbody>
+            </table>
+        </div>
+
+        <div id="mapPane" class="pane hidden">
+            <div id="map"></div>
+        </div>
+
+        <div id="infoPane" class="table-wrap pane hidden">
+            <h3>Thông tin tài khoản</h3>
+            <div class="profile-view">
+                <div class="profile-row"><span class="profile-label">Họ</span><span id="viewHo">--</span></div>
+                <div class="profile-row"><span class="profile-label">Tên</span><span id="viewTen">--</span></div>
+                <div class="profile-row"><span class="profile-label">Số điện thoại</span><span id="viewPhone">--</span></div>
+                <div class="profile-row"><span class="profile-label">Địa chỉ</span><span id="viewAddress">--</span></div>
+                <div class="profile-row"><span class="profile-label">Nhà cung cấp</span><span id="viewSupplier">--</span></div>
+                <div class="profile-row"><span class="profile-label">ID thiết bị</span><span id="viewDeviceUid">--</span></div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="shared.js?v=6"></script>
+    <script src="admin.js?v=12"></script>
+</body>
+</html>

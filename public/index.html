@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard_ShoesAgtech</title>
+<link rel="stylesheet" href="style.css?v=26">
+<link rel="icon" type="image/png" href="favicon.png?v=1">
+</head>
+<body>
+    <div id="loginScreen" class="login-screen">
+        <div class="login-box">
+            <div class="login-brand">
+                <img class="login-logo" src="logo-white.png?v=1" alt="Shoes Agtech">
+                <span>Giám sát chất lượng nước</span>
+            </div>
+
+            <h2 id="loginTitle">Đăng nhập</h2>
+
+            <input id="loginUsername" type="text" placeholder="Username" autocomplete="username">
+            <input id="loginPassword" type="password" placeholder="Password" autocomplete="current-password">
+
+            <div id="registerExtraFields" class="hidden">
+                <input id="loginDeviceUid" type="text" placeholder="Device UID (AA:BB:CC:...)">
+                <input id="loginAdminKey" type="password" placeholder="Admin key (để đăng ký board mới)">
+            </div>
+
+            <button id="loginSubmitBtn">Đăng nhập</button>
+            <div id="loginMsg"></div>
+            <a href="#" id="toggleRegisterLink">Chưa có tài khoản? Đăng ký board mới</a>
+        </div>
+    </div>
+
+    <script src="login.js?v=1"></script>
+</body>
+</html>

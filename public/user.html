@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dashboard_ShoesAgtech</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<link rel="stylesheet" href="style.css?v=26">
+<link rel="icon" type="image/png" href="favicon.png?v=1">
+</head>
+<body>
+    <div id="dashboard">
+        <header>
+            <div class="header-left">
+                <button id="drawerToggleBtn" class="icon-btn" aria-label="Menu">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 6h18v2H3zM3 11h18v2H3zM3 16h18v2H3z"/></svg>
+                </button>
+                <div class="brand">
+                    <img class="header-logo" src="logo-icon.png?v=1" alt="Shoes Agtech">
+                    <div class="brand-sub">Shoes Agtech Monitoring<span id="connStatusDot" class="live-dot"></span></div>
+                </div>
+            </div>
+            <div id="statsBar" class="header-stats hidden">
+                <div class="header-last-update">
+                    <div class="header-last-update-label">Cập nhật gần nhất</div>
+                    <div class="header-last-update-value" id="statLatest">--</div>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button id="refreshBtn">Làm mới</button>
+                <div class="user-menu-wrap">
+                    <button id="userMenuBtn" class="icon-btn user-icon-btn" aria-label="Tài khoản">
+                        <img src="user-icon.png?v=1" alt="User">
+                    </button>
+                    <div id="userMenuDropdown" class="user-dropdown hidden">
+                        <div id="welcomeMsg" class="dropdown-welcome"></div>
+                        <a href="#" id="infoMenuItem">Thông tin</a>
+                        <a href="#" id="changePasswordMenuItem">Đổi mật khẩu</a>
+                        <a href="#" id="logoutMenuItem">Thoát</a>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <div id="drawerOverlay" class="drawer-overlay hidden"></div>
+        <nav id="sideDrawer" class="side-drawer">
+            <a href="#" class="drawer-item active" data-view="map">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="4" ry="9"/><line x1="3" y1="12" x2="21" y2="12"/><path d="M4.5 7h15M4.5 17h15"/></svg>
+                Bản đồ
+            </a>
+            <a href="#" class="drawer-item" data-view="stats">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 20h2V10H4v10zm5 0h2V4H9v16zm5 0h2v-7h-2v7zm5 0h2v-12h-2v12z"/></svg>
+                Thống kê
+            </a>
+            <a href="#" class="drawer-item" data-view="table">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16v4H4zm0 6h16v4H4zm0 6h16v4H4z"/></svg>
+                Bảng dữ liệu
+            </a>
+            <a href="#" class="drawer-item" data-view="robot">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="5" y="9" width="14" height="11" rx="2"/><path d="M9 9V6a3 3 0 0 1 6 0v3"/><circle cx="9.5" cy="14.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="14.5" cy="14.5" r="1.2" fill="currentColor" stroke="none"/><path d="M9 18h6"/></svg>
+                Robot
+            </a>
+        </nav>
+
+        <div id="changePasswordPanel" class="register-panel hidden">
+            <input id="currentPasswordCheck" type="password" placeholder="Mật khẩu hiện tại">
+            <input id="newPassword" type="password" placeholder="Mật khẩu mới">
+            <input id="newPasswordConfirm" type="password" placeholder="Nhập lại mật khẩu mới">
+            <button id="changePasswordSubmitBtn">Lưu</button>
+            <span id="changePasswordMsg"></span>
+        </div>
+
+
+        <div id="tablePane" class="table-wrap pane hidden">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th><th>Lat</th><th>Lon</th><th>pH</th>
+                        <th>Nhiệt độ (°C)</th><th>Kiềm TGT</th><th>Kiềm (mg/L)</th><th>Thời gian</th>
+                    </tr>
+                </thead>
+                <tbody id="recordsBody"></tbody>
+            </table>
+        </div>
+
+        <div id="mapPane" class="pane hidden">
+            <div id="map"></div>
+            <div class="map-toolbar">
+                <button id="mapDrawBtn" class="map-draw-btn hidden" aria-label="Vẽ ruộng" title="Vẽ ruộng">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 1 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                </button>
+                <button id="mapSaveBtn" class="map-draw-btn map-save-btn hidden" aria-label="Lưu ruộng" title="Lưu ruộng">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 4h11l3 3v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z"/><path d="M8 4v5h8V4"/><path d="M8 14h8v6H8z"/></svg>
+                </button>
+                <button id="mapClearBtn" class="map-draw-btn map-clear-btn hidden" aria-label="Xóa hết" title="Xóa hết">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/><path d="M10 11v6M14 11v6"/></svg>
+                </button>
+            </div>
+        </div>
+
+        <div id="statsPane" class="table-wrap pane hidden">
+            <h3>Thống kê theo ngày</h3>
+            <table>
+                <thead><tr><th>Ngày</th><th>Số mẫu</th><th>pH trung bình</th><th>Kiềm trung bình (mg/L)</th></tr></thead>
+                <tbody id="dailyStatsBody"></tbody>
+            </table>
+        </div>
+
+        <div id="robotPane" class="table-wrap pane hidden">
+            <h3>Robot theo ngày</h3>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Ngày</th><th>Giờ mở máy</th><th>Giờ tắt máy</th><th>Pin TB (%)</th>
+                        <th>GPS</th><th>Flight mode</th><th>Vận tốc TB (m/s)</th><th>Throttle TB (%)</th><th>Vị trí cuối</th>
+                    </tr>
+                </thead>
+                <tbody id="robotDailyBody"></tbody>
+            </table>
+        </div>
+
+        <div id="robotDayDetailPane" class="table-wrap pane hidden">
+            <div class="day-detail-header">
+                <h3 id="robotDayDetailTitle">Robot ngày --</h3>
+                <button id="backToRobotBtn" class="small-btn">← Quay lại Robot</button>
+            </div>
+
+            <div class="precision-row">
+                <div class="precision-card">
+                    <div class="stat-label">Tổng thời gian sử dụng</div>
+                    <div class="stat-value" id="robotUsageDuration">--</div>
+                </div>
+                <div class="precision-card">
+                    <div class="stat-label">Pin đầu ngày → cuối ngày</div>
+                    <div class="stat-value" id="robotBatteryRange">--</div>
+                </div>
+            </div>
+
+            <div class="chart-card">
+                <div class="gauge-title">Diễn biến Pin trong ngày</div>
+                <canvas id="robotBatteryLineChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <div class="gauge-title">Độ mạnh GPS trong ngày (số vệ tinh, màu theo loại fix)</div>
+                <canvas id="robotGpsLineChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <div class="gauge-title">Diễn biến vận tốc trong ngày (m/s)</div>
+                <canvas id="robotSpeedLineChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <div class="gauge-title">Diễn biến Throttle trong ngày (%)</div>
+                <canvas id="robotThrottleLineChart"></canvas>
+            </div>
+        </div>
+
+        <div id="dayDetailPane" class="table-wrap pane hidden">
+            <div class="day-detail-header">
+                <h3 id="dayDetailTitle">Chi tiết ngày --</h3>
+                <button id="backToStatsBtn" class="small-btn">← Quay lại thống kê</button>
+            </div>
+
+            <div id="alarmBanner" class="alarm-banner"></div>
+
+            <div class="gauge-row">
+                <div class="gauge-card">
+                    <div class="gauge-title">Chỉ số rủi ro pH</div>
+                    <canvas id="phGaugeCanvas" width="220" height="130"></canvas>
+                    <div class="gauge-value" id="phGaugeValue">--</div>
+                </div>
+                <div class="gauge-card">
+                    <div class="gauge-title">Chỉ số rủi ro Kiềm</div>
+                    <canvas id="alkGaugeCanvas" width="220" height="130"></canvas>
+                    <div class="gauge-value" id="alkGaugeValue">--</div>
+                </div>
+            </div>
+
+            <div class="precision-row">
+                <div class="precision-card">
+                    <div class="stat-label">Độ lệch chuẩn pH</div>
+                    <div class="stat-value" id="phStdDev">--</div>
+                </div>
+                <div class="precision-card">
+                    <div class="stat-label">Độ lệch chuẩn Kiềm</div>
+                    <div class="stat-value" id="alkStdDev">--</div>
+                </div>
+                <div class="precision-card">
+                    <div class="stat-label">Độ tin cậy lấy mẫu</div>
+                    <div class="stat-value" id="sampleConfidence">--</div>
+                </div>
+            </div>
+
+            <div class="chart-card">
+                <div class="gauge-title">Diễn biến pH trong ngày</div>
+                <canvas id="phLineChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <div class="gauge-title">Diễn biến Kiềm trong ngày</div>
+                <canvas id="alkLineChart"></canvas>
+            </div>
+            <div class="chart-card">
+                <div class="gauge-title">Diễn biến nhiệt độ trong ngày</div>
+                <canvas id="tempLineChart"></canvas>
+            </div>
+        </div>
+
+        <div id="infoPane" class="table-wrap pane hidden">
+            <h3>Thông tin</h3>
+            <div class="profile-form">
+                <label>Họ<input id="profileHo" type="text"></label>
+                <label>Tên<input id="profileTen" type="text"></label>
+                <label>Số điện thoại<input id="profilePhone" type="text"></label>
+                <label>Địa chỉ<input id="profileAddress" type="text"></label>
+                <label>Nhà cung cấp<input id="profileSupplier" type="text"></label>
+                <label>ID thiết bị<input id="profileDeviceUid" type="text" disabled></label>
+                <div class="profile-actions">
+                    <button id="profileSaveBtn">Lưu</button>
+                    <button id="profileDeleteBtn" class="danger-btn">Xóa thông tin</button>
+                    <span id="profileMsg"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <script src="shared.js?v=6"></script>
+    <script src="user.js?v=32"></script>
+</body>
+</html>
