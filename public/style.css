@@ -294,17 +294,6 @@ header {
 }
 
 .drawer-item svg { width: 18px; height: 18px; flex-shrink: 0; }
-/* shrimp.png có nền transparent, dùng brightness(0) để đổi màu theo theme */
-.drawer-item img { width: 18px; height: 18px; flex-shrink: 0; object-fit: contain; filter: brightness(0) opacity(0.55); }
-.drawer-item:hover img { filter: brightness(0) opacity(0.85); }
-.drawer-item.active img { filter: brightness(0) invert(1); }
-[data-theme="dark"] .drawer-item img { filter: brightness(0) invert(1) opacity(0.75); }
-[data-theme="dark"] .drawer-item:hover img { filter: brightness(0) invert(1); }
-[data-theme="dark"] .drawer-item.active img { filter: brightness(0) invert(1); }
-@media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) .drawer-item img { filter: brightness(0) invert(1) opacity(0.75); }
-    :root:not([data-theme="light"]) .drawer-item.active img { filter: brightness(0) invert(1); }
-}
 
 .drawer-item:hover { background: var(--blue-50); }
 
@@ -1101,4 +1090,88 @@ tbody tr:hover { background: var(--blue-50); }
     width: 18px;
     height: 18px;
     color: #fff;
+}
+
+/* ── Mobile / Responsive ─────────────────────────────────────────────── */
+
+/* Horizontal scroll for all data tables */
+.table-wrap { overflow-x: auto; }
+
+@media (max-width: 767px) {
+    /* Header */
+    header { padding: 10px 14px; }
+    .brand-sub { font-size: 11px; }
+    .header-actions button:not(.icon-btn) { font-size: 12px; padding: 7px 12px; }
+
+    /* Stats bar (admin — cards row below header) */
+    .stats-bar { flex-wrap: wrap; gap: 10px; padding: 12px 14px 4px; }
+    .stat-card  { flex: 1 1 calc(50% - 5px); min-width: 120px; }
+
+    /* Pane margins */
+    .pane.table-wrap { margin: 10px 10px 14px; }
+
+    /* Tables — ensure min-width so they scroll rather than squish */
+    table { min-width: 520px; }
+
+    /* Map pane — stack day panel below map on portrait screens */
+    #mapPane.pane {
+        flex-direction: column;
+        height: auto;
+        min-height: calc(100vh - 110px);
+        padding: 0 10px 14px;
+    }
+    .map-area-wrap { height: 52vw; min-height: 260px; }
+    .map-day-panel { flex: none; width: 100%; flex-direction: row; flex-wrap: wrap; gap: 10px; }
+    .map-day-panel label { flex: 1 1 120px; display: flex; flex-direction: column; gap: 4px; }
+    .map-day-panel select { width: 100%; }
+    #mapDayInfo { width: 100%; }
+
+    /* Gauge / precision rows — wrap to 2 per row */
+    .gauge-row     { flex-wrap: wrap; }
+    .precision-row { flex-wrap: wrap; }
+    .gauge-card     { flex: 1 1 calc(50% - 8px); min-width: 120px; }
+    .precision-card { flex: 1 1 calc(50% - 7px); min-width: 110px; }
+
+    /* Day detail header — stack buttons below title */
+    .day-detail-header { flex-direction: column; align-items: flex-start; gap: 8px; }
+    .day-detail-header > div { display: flex; flex-wrap: wrap; gap: 6px; }
+
+    /* Stats charts grid — single column on mobile */
+    .stats-charts-grid { grid-template-columns: 1fr; }
+
+    /* Login box */
+    .login-box { width: calc(100vw - 32px); max-width: 340px; padding: 24px 20px; }
+
+    /* Modal */
+    .modal-box { padding: 16px 14px 20px; }
+
+    /* Register panel — wrap on mobile */
+    .register-panel { flex-wrap: wrap; }
+
+    /* Feed pie cards — full width on mobile */
+    .feed-pie-card { max-width: 100%; }
+
+    /* Board context bar padding */
+    .board-context-bar { padding: 10px 14px 0; }
+
+    /* Profile form — full width */
+    .profile-form { max-width: 100%; }
+}
+
+@media (max-width: 479px) {
+    header { padding: 8px 10px; }
+    .header-logo { width: 28px; }
+    .brand-sub { font-size: 10px; letter-spacing: 0; }
+
+    /* Stat cards — single column */
+    .stat-card      { flex: 1 1 100%; }
+    /* Gauge / precision cards — stack fully */
+    .gauge-card     { flex: 1 1 100%; }
+    .precision-card { flex: 1 1 100%; }
+
+    /* Map day panel — stacked selects */
+    .map-day-panel label { flex: 1 1 100%; }
+
+    /* Chart canvas — slightly lower to fit screen */
+    .chart-card canvas { max-height: 200px; }
 }
