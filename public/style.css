@@ -1123,7 +1123,11 @@ tbody tr:hover { background: var(--blue-50); }
         min-height: calc(100vh - 110px);
         padding: 0 10px 14px;
     }
-    .map-area-wrap { height: 52vw; min-height: 260px; }
+    /* flex: 0 0 auto prevents flexbox from ignoring the explicit height */
+    .map-area-wrap { flex: 0 0 auto; height: 55vw; min-height: 260px; }
+    /* Set height directly on #map so Leaflet can measure it (height:100% fails
+       when parent's height is not derived from an explicit ancestor height) */
+    #mapPane #map  { height: 55vw; min-height: 260px; }
     .map-day-panel { flex: none; width: 100%; flex-direction: row; flex-wrap: wrap; gap: 10px; }
     .map-day-panel label { flex: 1 1 120px; display: flex; flex-direction: column; gap: 4px; }
     .map-day-panel select { width: 100%; }

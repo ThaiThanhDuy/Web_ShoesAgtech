@@ -1,3 +1,7 @@
+// Limit x-axis tick density only on narrow mobile screens so labels don't
+// overlap; desktop charts keep Chart.js auto-calculated tick count.
+const _CHART_X_TICKS = window.innerWidth < 768 ? { maxTicksLimit: 6, autoSkip: true } : {}
+
 // ph_am/ph_pm: only one set per record (split by local hour-of-day at capture)
 // — this picks whichever is present. alk_tgt is firmware's real-time alkMgl
 // (always present going forward); alk_mgl is only set once today's ΔpH slot
@@ -784,7 +788,7 @@ function _renderAlkMonthlyChart(monthKey) {
             responsive: true,
             scales: {
                 y: { min: 0, title: { display: true, text: 'mg/L' } },
-                x: { ticks: { maxRotation: 45 } }
+                x: { ticks: { ..._CHART_X_TICKS, maxRotation: 45 } }
             }
         }
     })
@@ -865,14 +869,14 @@ function showDayDetail(day, pond) {
     phAmLineChartInstance = new Chart(document.getElementById('phAmLineChart'), {
         type: 'line',
         data: { labels, datasets: [{ label: 'pH Sáng', data: phAmValuesRaw, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.12)', fill: true, tension: 0.3 }] },
-        options: { responsive: true, scales: { y: { min: 5, max: 10 } } }
+        options: { responsive: true, scales: { y: { min: 5, max: 10 }, x: { ticks: { ..._CHART_X_TICKS } } } }
     })
 
     if (phPmLineChartInstance) phPmLineChartInstance.destroy()
     phPmLineChartInstance = new Chart(document.getElementById('phPmLineChart'), {
         type: 'line',
         data: { labels, datasets: [{ label: 'pH Chiều', data: phPmValuesRaw, borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.12)', fill: true, tension: 0.3 }] },
-        options: { responsive: true, scales: { y: { min: 5, max: 10 } } }
+        options: { responsive: true, scales: { y: { min: 5, max: 10 }, x: { ticks: { ..._CHART_X_TICKS } } } }
     })
 
     // Alk chart is now monthly — sync its month selector to the day being viewed
@@ -885,7 +889,7 @@ function showDayDetail(day, pond) {
     tempLineChartInstance = new Chart(document.getElementById('tempLineChart'), {
         type: 'line',
         data: { labels, datasets: [{ label: 'Nhiệt độ (°C)', data: tempLineValues, borderColor: '#dc2626', backgroundColor: 'rgba(220,38,38,0.12)', fill: true, tension: 0.3 }] },
-        options: { responsive: true }
+        options: { responsive: true, scales: { x: { ticks: { ..._CHART_X_TICKS } } } }
     })
 
     _renderDayFeedingCharts(day, pond)
@@ -1293,7 +1297,7 @@ function showRobotDayDetail(day) {
     robotBatteryChartInstance = new Chart(document.getElementById('robotBatteryLineChart'), {
         type: 'line',
         data: { labels, datasets: [{ label: 'Pin (%)', data: battValues, borderColor: '#2e9e4f', backgroundColor: 'rgba(46,158,79,0.12)', fill: true, tension: 0.3 }] },
-        options: { responsive: true, scales: { y: { min: 0, max: 100 } } }
+        options: { responsive: true, scales: { y: { min: 0, max: 100 }, x: { ticks: { ..._CHART_X_TICKS } } } }
     })
 
     const satValues = dayRecords.map(r => Number(r.gps_sats))
@@ -1316,7 +1320,7 @@ function showRobotDayDetail(day) {
                 tension:              0.3
             }]
         },
-        options: { responsive: true, scales: { y: { min: 0 } } }
+        options: { responsive: true, scales: { y: { min: 0 }, x: { ticks: { ..._CHART_X_TICKS } } } }
     })
 
     const speedValues = dayRecords.map(r => Number(r.speed_mps))
@@ -1325,7 +1329,7 @@ function showRobotDayDetail(day) {
     robotSpeedChartInstance = new Chart(document.getElementById('robotSpeedLineChart'), {
         type: 'line',
         data: { labels, datasets: [{ label: 'Vận tốc (m/s)', data: speedValues, borderColor: '#9c27b0', backgroundColor: 'rgba(156,39,176,0.12)', fill: true, tension: 0.3 }] },
-        options: { responsive: true, scales: { y: { min: 0 } } }
+        options: { responsive: true, scales: { y: { min: 0 }, x: { ticks: { ..._CHART_X_TICKS } } } }
     })
 
     const throttleValues = dayRecords.map(r => Number(r.throttle_pct))
@@ -1334,7 +1338,7 @@ function showRobotDayDetail(day) {
     robotThrottleChartInstance = new Chart(document.getElementById('robotThrottleLineChart'), {
         type: 'line',
         data: { labels, datasets: [{ label: 'Throttle (%)', data: throttleValues, borderColor: '#e65100', backgroundColor: 'rgba(230,81,0,0.12)', fill: true, tension: 0.3 }] },
-        options: { responsive: true, scales: { y: { min: 0, max: 100 } } }
+        options: { responsive: true, scales: { y: { min: 0, max: 100 }, x: { ticks: { ..._CHART_X_TICKS } } } }
     })
 
     const missionDistValues = dayRecords.map(r => r.mission_dist_m !== null && r.mission_dist_m !== undefined ? Number(r.mission_dist_m) : null)
@@ -1344,14 +1348,14 @@ function showRobotDayDetail(day) {
     robotMissionDistChart = new Chart(document.getElementById('robotMissionDistChart'), {
         type: 'line',
         data: { labels, datasets: [{ label: 'Mission (m)', data: missionDistValues, borderColor: '#0288d1', backgroundColor: 'rgba(2,136,209,0.12)', fill: true, tension: 0.3, spanGaps: true }] },
-        options: { responsive: true, plugins: { tooltip: { callbacks: { label: ctx => ctx.parsed.y !== null ? `${ctx.parsed.y.toFixed(0)} m` : '--' } } }, scales: { y: { min: 0, title: { display: true, text: 'm' } } } }
+        options: { responsive: true, plugins: { tooltip: { callbacks: { label: ctx => ctx.parsed.y !== null ? `${ctx.parsed.y.toFixed(0)} m` : '--' } } }, scales: { y: { min: 0, title: { display: true, text: 'm' } }, x: { ticks: { ..._CHART_X_TICKS } } } }
     })
 
     if (robotActualDistChart) robotActualDistChart.destroy()
     robotActualDistChart = new Chart(document.getElementById('robotActualDistChart'), {
         type: 'line',
         data: { labels, datasets: [{ label: 'Thực tế (m)', data: actualDistValues, borderColor: '#f57c00', backgroundColor: 'rgba(245,124,0,0.12)', fill: true, tension: 0.3, spanGaps: true }] },
-        options: { responsive: true, plugins: { tooltip: { callbacks: { label: ctx => ctx.parsed.y !== null ? `${ctx.parsed.y.toFixed(0)} m` : '--' } } }, scales: { y: { min: 0, title: { display: true, text: 'm' } } } }
+        options: { responsive: true, plugins: { tooltip: { callbacks: { label: ctx => ctx.parsed.y !== null ? `${ctx.parsed.y.toFixed(0)} m` : '--' } } }, scales: { y: { min: 0, title: { display: true, text: 'm' } }, x: { ticks: { ..._CHART_X_TICKS } } } }
     })
 
     setViewMode('robot-day-detail')
