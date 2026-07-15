@@ -5,8 +5,8 @@ const pool = require('../src/db')
 async function main() {
     const [deviceUid, username, password] = process.argv.slice(2)
     if (!deviceUid || !username || !password) {
-        console.error('Usage: npm run register-device -- <device_uid> <username> <password>')
-        console.error('  device_uid: copy from QGC -> Vehicle Setup, or from the AUTOPILOT_VERSION uid shown in logs')
+        console.error('Usage: npm run register-device -- <robot_id> <username> <password>')
+        console.error('  robot_id: copy from QGC -> Kết nối -> Robot ID (e.g. S16S-01, set via SA_ROBOT_ID param)')
         process.exit(1)
     }
 

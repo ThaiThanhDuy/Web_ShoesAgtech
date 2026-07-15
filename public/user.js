@@ -18,18 +18,27 @@ function effAlk(r) {
     return null
 }
 
+// Thresholds matched to QGC app (FlyViewCustomLayer.qml phColor/alkMglColor).
+// pH: danger < 7.0 or > 9.0 | warning < 7.5 or > 8.5
+// Kiềm mg/L: danger < 60 or > 200 | warning < 80 or > 160
 function phColor(v) {
-    if (v === null || v === undefined || v === 0) return '#AAAAAA'
+    if (v === null || v === undefined || isNaN(v) || v === 0) return '#AAAAAA'
     if (v < 7.0 || v > 9.0) return '#FF4444'
     if (v < 7.5 || v > 8.5) return '#FFD700'
     return '#00E676'
 }
 
-// Aquaculture reference range for total alkalinity (mg/L as CaCO3).
+function phRecordColor(r) {
+    if (r.ph_am !== null && r.ph_am !== undefined) return phColor(Number(r.ph_am))
+    if (r.ph_pm !== null && r.ph_pm !== undefined) return phColor(Number(r.ph_pm))
+    if (r.ph !== null && r.ph !== undefined) return phColor(Number(r.ph))
+    return '#AAAAAA'
+}
+
 function alkColor(v) {
     if (v === null || v === undefined || isNaN(v)) return '#AAAAAA'
-    if (v < 30 || v > 200) return '#FF4444'
-    if (v < 50 || v > 150) return '#FFD700'
+    if (v < 60 || v > 200) return '#FF4444'
+    if (v < 80 || v > 160) return '#FFD700'
     return '#00E676'
 }
 
@@ -47,9 +56,12 @@ function stdDev(values) {
 
 let currentViewMode = 'table'
 let dailyGroups = {}
-let phLineChartInstance = null
+let phAmLineChartInstance = null
+let phPmLineChartInstance = null
 let alkLineChartInstance = null
 let tempLineChartInstance = null
+let _dayFeedBarChartInst = null
+let _dayFeedPieInsts = []
 
 const map = L.map('map').setView([0, 0], 2)
 
@@ -71,8 +83,8 @@ let robotMarker = null
 const robotIcon = L.divIcon({
     className: 'robot-marker-wrapper',
     html: '<div class="robot-marker-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="9" width="14" height="11" rx="2"/><path d="M9 9V6a3 3 0 0 1 6 0v3"/><circle cx="9.5" cy="14.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="14.5" cy="14.5" r="1.2" fill="currentColor" stroke="none"/><path d="M9 18h6"/></svg></div>',
-    iconSize: [32, 32],
-    iconAnchor: [16, 16]
+    iconSize:  [32, 32],
+    iconAnchor:[16, 16]
 })
 
 // Shows the robot's last known position (from telemetry, not water-quality
@@ -98,6 +110,62 @@ async function loadRobotMarker() {
         console.error('Failed to load robot position', err)
     }
 }
+
+// ── "Xem theo ngày" — panel on the map page filters renderMap()'s
+// water-quality markers to one calendar day. Robot data is intentionally
+// left out of this filter — the robot's "latest position" badge above
+// always just shows the latest, regardless of which day is picked here. ──
+
+// Days with water-quality samples (dailyGroups), newest first — keeps the
+// currently-picked day selected across repopulation (e.g. after a refresh
+// adds today as a new option).
+function populateMapDaySelect() {
+    const sel = document.getElementById('mapDaySelect')
+    const sortedDays = Object.keys(dailyGroups).sort((a, b) => parseDay(b) - parseDay(a))
+    sel.innerHTML = '<option value="all">Tất cả</option>' +
+        sortedDays.map(d => `<option value="${d}">${d}</option>`).join('')
+    // Auto-select the newest day (first in sorted list)
+    sel.value = sortedDays.length > 0 ? sortedDays[0] : 'all'
+
+    // populate pond select from all records
+    const pondSel = document.getElementById('mapPondSelect')
+    const ponds = [...new Set(currentTableRecords
+        .map(r => (r.pond_idx !== null && r.pond_idx !== undefined) ? Number(r.pond_idx) : null)
+        .filter(p => p !== null)
+    )].sort((a, b) => a - b)
+    pondSel.innerHTML = '<option value="all">Tất cả</option>' +
+        ponds.map(p => `<option value="${p}">Ao ${p}</option>`).join('')
+    // Auto-select the pond of the most recently captured record
+    const latestRec = currentTableRecords.reduce((best, r) =>
+        (!best || new Date(r.captured_at) > new Date(best.captured_at)) ? r : best, null)
+    const latestPond = latestRec && latestRec.pond_idx !== null && latestRec.pond_idx !== undefined
+        ? String(latestRec.pond_idx) : 'all'
+    pondSel.value = ponds.map(String).includes(latestPond) ? latestPond : 'all'
+
+    applyMapFilters()
+}
+
+function applyMapFilters() {
+    const day  = document.getElementById('mapDaySelect').value
+    const pond = document.getElementById('mapPondSelect').value
+    const ph   = document.getElementById('mapPhSelect').value
+    const info = document.getElementById('mapDayInfo')
+
+    let filtered = currentTableRecords
+    if (day !== 'all') filtered = filtered.filter(r =>
+        new Date(r.captured_at).toLocaleDateString('vi-VN') === day)
+    if (pond !== 'all') filtered = filtered.filter(r =>
+        (r.pond_idx !== null && r.pond_idx !== undefined) ? Number(r.pond_idx) === Number(pond) : false)
+    if (ph === 'am') filtered = filtered.filter(r => r.ph_am !== null && r.ph_am !== undefined)
+    if (ph === 'pm') filtered = filtered.filter(r => r.ph_pm !== null && r.ph_pm !== undefined)
+
+    renderMap(filtered, ph)
+    info.textContent = filtered.length < currentTableRecords.length ? `${filtered.length} mẫu` : ''
+}
+
+document.getElementById('mapDaySelect').addEventListener('change', applyMapFilters)
+document.getElementById('mapPondSelect').addEventListener('change', applyMapFilters)
+document.getElementById('mapPhSelect').addEventListener('change', applyMapFilters)
 
 // ── "Vẽ ruộng" feature: tap points on the map to outline a field, then
 // compute its area and paint a red/yellow/green coverage grid inside it,
@@ -158,10 +226,10 @@ function pointInPolygon(lat, lon, points) {
 // nearest-neighbor cells.
 const FIELD_COLOR_RADIUS_M = 25
 
-function interpolatedCellColor(lat, lon) {
-    if (latestWaterQualityRecords.length === 0) return null
+function interpolatedCellColor(lat, lon, records) {
+    if (records.length === 0) return null
     let wSumPh = 0, wTotalPh = 0, wSumAlk = 0, wTotalAlk = 0
-    latestWaterQualityRecords.forEach(r => {
+    records.forEach(r => {
         const d = haversineMeters(lat, lon, r.lat, r.lon)
         if (d > FIELD_COLOR_RADIUS_M) return
         const w = (1 - d / FIELD_COLOR_RADIUS_M) ** 2
@@ -210,12 +278,21 @@ function drawFieldGradient(points) {
     srcCanvas.height = H
     const srcCtx = srcCanvas.getContext('2d')
 
+    // Prefilter to records reachable from within this bbox — eliminates records
+    // that can't influence any pixel, avoiding haversine calls per-pixel for them.
+    const radLat = FIELD_COLOR_RADIUS_M / 111000
+    const radLon = FIELD_COLOR_RADIUS_M / (111000 * Math.cos(midLatRad))
+    const nearbyRecords = latestWaterQualityRecords.filter(r =>
+        r.lat >= minLat - radLat && r.lat <= maxLat + radLat &&
+        r.lon >= minLon - radLon && r.lon <= maxLon + radLon
+    )
+
     const BLOCK = 5
     for (let y = 0; y < H; y += BLOCK) {
         for (let x = 0; x < W; x += BLOCK) {
             const lon = minLon + (x / W) * lonSpan
             const lat = maxLat - (y / H) * latSpan
-            const color = interpolatedCellColor(lat, lon)
+            const color = interpolatedCellColor(lat, lon, nearbyRecords)
             if (!color) continue
             srcCtx.fillStyle = color
             srcCtx.fillRect(x, y, BLOCK, BLOCK)
@@ -249,10 +326,10 @@ function drawFieldGradient(points) {
 
 function onMapDrawClick(e) {
     fieldPoints.push([e.latlng.lat, e.latlng.lng])
-    const marker = L.circleMarker(e.latlng, { radius: 5, color: '#1a72ff', fillColor: '#1a72ff', fillOpacity: 1 }).addTo(map)
+    const marker = L.circleMarker(e.latlng, { radius: 5, color: '#00C853', fillColor: '#00C853', fillOpacity: 1 }).addTo(map)
     fieldVertexMarkers.push(marker)
     if (fieldDrawLine) map.removeLayer(fieldDrawLine)
-    fieldDrawLine = L.polyline(fieldPoints, { color: '#1a72ff', weight: 2, dashArray: '6,4' }).addTo(map)
+    fieldDrawLine = L.polyline(fieldPoints, { color: '#00C853', weight: 2, dashArray: '6,4' }).addTo(map)
 }
 
 function clearFieldOverlay() {
@@ -363,20 +440,41 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
 // point seen in each group (a fixed anchor avoids the group's center drifting
 // as more nearby points get added) and keep only the most recently captured
 // record per group for display — the table still lists every individual row.
+// O(N) grid-bucket clustering — each record lands in one grid cell, then only
+// the 3×3 neighbourhood of cells is searched for an existing cluster anchor.
+// Worst case is still O(N×9) but 9 is a fixed constant, not proportional to N.
 function clusterByProximity(records, radiusMeters) {
+    const cellDeg  = radiusMeters / 111000
+    const grid     = {}   // grid-cell key → index in clusters[]
     const clusters = []
+
     records.forEach(r => {
-        const cluster = clusters.find(c => haversineMeters(c.anchorLat, c.anchorLon, r.lat, r.lon) <= radiusMeters)
-        if (!cluster) {
+        const ci = Math.floor(r.lat / cellDeg)
+        const cj = Math.floor(r.lon / cellDeg)
+        let foundIdx = -1
+        outer: for (let di = -1; di <= 1; di++) {
+            for (let dj = -1; dj <= 1; dj++) {
+                const key = `${ci + di},${cj + dj}`
+                if (key in grid) {
+                    const idx = grid[key]
+                    if (haversineMeters(clusters[idx].anchorLat, clusters[idx].anchorLon, r.lat, r.lon) <= radiusMeters) {
+                        foundIdx = idx
+                        break outer
+                    }
+                }
+            }
+        }
+        if (foundIdx === -1) {
+            grid[`${ci},${cj}`] = clusters.length
             clusters.push({ anchorLat: r.lat, anchorLon: r.lon, latest: r })
-        } else if (new Date(r.captured_at) > new Date(cluster.latest.captured_at)) {
-            cluster.latest = r
+        } else if (new Date(r.captured_at) > new Date(clusters[foundIdx].latest.captured_at)) {
+            clusters[foundIdx].latest = r
         }
     })
     return clusters
 }
 
-function renderMap(records) {
+function renderMap(records, phMode) {
     latestWaterQualityRecords = records
     clearMarkers()
     if (records.length === 0) return
@@ -385,17 +483,30 @@ function renderMap(records) {
 
     clusters.forEach(cluster => {
         const r = cluster.latest
-        const rPh = effPh(r)
-        const phTag = (r.ph_am !== null && r.ph_am !== undefined) ? ' (AM)' : (r.ph_pm !== null && r.ph_pm !== undefined) ? ' (PM)' : ''
+        // pick pH value and color based on active filter
+        let rPh, markerColor, phTag
+        if (phMode === 'am') {
+            rPh = (r.ph_am !== null && r.ph_am !== undefined) ? Number(r.ph_am) : null
+            markerColor = phColor(rPh)
+            phTag = ' (Sáng)'
+        } else if (phMode === 'pm') {
+            rPh = (r.ph_pm !== null && r.ph_pm !== undefined) ? Number(r.ph_pm) : null
+            markerColor = phColor(rPh)
+            phTag = ' (Chiều)'
+        } else {
+            rPh = effPh(r)
+            markerColor = phRecordColor(r)
+            phTag = (r.ph_am !== null && r.ph_am !== undefined) ? ' (Sáng)' : (r.ph_pm !== null && r.ph_pm !== undefined) ? ' (Chiều)' : ''
+        }
         const c = L.circleMarker([r.lat, r.lon], {
             radius:      8,
-            color:       phColor(rPh),
-            fillColor:   phColor(rPh),
+            color:       markerColor,
+            fillColor:   markerColor,
             fillOpacity: 0.6
         }).bindPopup(
             `ID ${r.id}<br>pH: ${rPh !== null ? rPh.toFixed(2) : '--'}${phTag}<br>` +
-            `Kiềm TGT: ${r.alk_tgt !== null && r.alk_tgt !== undefined ? Number(r.alk_tgt).toFixed(1) : '--'} mg/L<br>` +
-            `Kiềm (mg/L): ${r.alk_mgl !== null && r.alk_mgl !== undefined ? Number(r.alk_mgl).toFixed(1) : '--'}<br>` +
+            `Kiềm: ${r.alk_dkh !== null && r.alk_dkh !== undefined ? Number(r.alk_dkh).toFixed(2) + ' dKH' : '--'} | ${r.alk_mgl !== null && r.alk_mgl !== undefined ? Number(r.alk_mgl).toFixed(1) + ' mg/L' : '--'}<br>` +
+            `AO: ${r.pond_idx !== null && r.pond_idx !== undefined ? r.pond_idx : '--'}<br>` +
             `Ngày đo: ${new Date(r.captured_at).toLocaleString('vi-VN')}`
         )
         c.addTo(map)
@@ -407,17 +518,19 @@ function renderMap(records) {
 }
 
 function recordRowHtml(r) {
-    const rPh = effPh(r)
-    const phTag = (r.ph_am !== null && r.ph_am !== undefined) ? ' (AM)' : (r.ph_pm !== null && r.ph_pm !== undefined) ? ' (PM)' : ''
     return `
         <td>${r.id}</td>
         <td class="cell-lat">${Number(r.lat).toFixed(6)}</td>
         <td class="cell-lon">${Number(r.lon).toFixed(6)}</td>
-        <td class="cell-ph"><span class="ph-chip" style="background:${phColor(rPh)}">${rPh !== null ? rPh.toFixed(2) : '--'}${phTag}</span></td>
+        <td class="cell-ph"><span class="ph-chip" style="background:${phColor(r.ph_am !== null && r.ph_am !== undefined ? Number(r.ph_am) : null)}">${r.ph_am !== null && r.ph_am !== undefined ? Number(r.ph_am).toFixed(2) : '--'}</span></td>
+        <td class="cell-ph"><span class="ph-chip" style="background:${phColor(r.ph_pm !== null && r.ph_pm !== undefined ? Number(r.ph_pm) : null)}">${r.ph_pm !== null && r.ph_pm !== undefined ? Number(r.ph_pm).toFixed(2) : '--'}</span></td>
+        <td class="cell-ph">${r.delta_ph !== null && r.delta_ph !== undefined ? Number(r.delta_ph).toFixed(2) : '--'}</td>
         <td class="cell-temp">${r.temp !== null ? Number(r.temp).toFixed(1) : '--'}</td>
-        <td class="cell-alk">${r.alk_tgt !== null && r.alk_tgt !== undefined ? Number(r.alk_tgt).toFixed(1) : '--'}</td>
+        <td class="cell-alk">${r.alk_dkh !== null && r.alk_dkh !== undefined ? Number(r.alk_dkh).toFixed(2) : '--'}</td>
         <td class="cell-alk">${r.alk_mgl !== null && r.alk_mgl !== undefined ? Number(r.alk_mgl).toFixed(1) : '--'}</td>
+        <td>${r.pond_idx !== null && r.pond_idx !== undefined ? r.pond_idx : '--'}</td>
         <td>${new Date(r.captured_at).toLocaleString('vi-VN')}</td>
+        <td><button class="small-btn danger-btn delete-btn" data-id="${r.id}">Xóa</button></td>
     `
 }
 
@@ -433,84 +546,150 @@ function renderStats(records) {
     document.getElementById('statLatest').textContent = new Date(latest.captured_at).toLocaleString('vi-VN')
 }
 
-// Groups records into calendar days (00h00–24h00 local time) and shows
-// per-day count/avg pH/avg alkalinity, newest day first. Clicking a row
-// drills into showDayDetail() for that day.
+// Groups records by (day × pond) and shows one row per combo, newest day first,
+// pond ascending. Clicking a row drills into showDayDetail() for that day.
 function renderDailyStats(records) {
     dailyGroups = {}
+    const pondGroups = {}   // key: "day||pond"
+
     records.forEach(r => {
-        const day = new Date(r.captured_at).toLocaleDateString('vi-VN')
+        const day  = new Date(r.captured_at).toLocaleDateString('vi-VN')
+        const pond = (r.pond_idx !== null && r.pond_idx !== undefined) ? Number(r.pond_idx) : 0
         if (!dailyGroups[day]) dailyGroups[day] = []
         dailyGroups[day].push(r)
+        const key = `${day}||${pond}`
+        if (!pondGroups[key]) pondGroups[key] = { day, pond, records: [] }
+        pondGroups[key].records.push(r)
     })
 
-    const days = Object.keys(dailyGroups).sort((a, b) => parseDay(b) - parseDay(a))
+    const rows = Object.values(pondGroups).sort((a, b) => {
+        const dc = parseDay(b.day) - parseDay(a.day)
+        return dc !== 0 ? dc : a.pond - b.pond
+    })
 
     const tbody = document.getElementById('dailyStatsBody')
     tbody.innerHTML = ''
-    days.forEach(day => {
-        const dayRecords = dailyGroups[day]
-        const dayPhVals  = dayRecords.map(effPh).filter(v => v !== null && !isNaN(v))
-        const dayAlkVals = dayRecords.map(effAlk).filter(v => v !== null && !isNaN(v))
-        const avgPh  = dayPhVals.length  ? dayPhVals.reduce((a, b) => a + b, 0)  / dayPhVals.length  : 0
-        const avgAlk = dayAlkVals.length ? dayAlkVals.reduce((a, b) => a + b, 0) / dayAlkVals.length : 0
+    rows.forEach(({ day, pond, records: recs }) => {
+        const phVals  = recs.map(effPh).filter(v => v !== null && !isNaN(v))
+        const alkVals = recs.map(effAlk).filter(v => v !== null && !isNaN(v))
+        const avgPh  = phVals.length  ? phVals.reduce((a, b)  => a + b, 0) / phVals.length  : 0
+        const avgAlk = alkVals.length ? alkVals.reduce((a, b) => a + b, 0) / alkVals.length : 0
+        const lastTs = recs.reduce((max, r) => {
+            const t = r.captured_at ? new Date(r.captured_at) : null
+            return (t && (!max || t > max)) ? t : max
+        }, null)
+        const lastTime = lastTs ? lastTs.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : ''
         const tr = document.createElement('tr')
         tr.className = 'clickable-row-light'
         tr.innerHTML = `
-            <td>${day}</td>
-            <td>${dayRecords.length}</td>
+            <td>${day}<br><span class="stat-last-time">${lastTime}</span></td>
+            <td>Ao ${pond}</td>
+            <td>${recs.length}</td>
             <td><span class="ph-chip" style="background:${phColor(avgPh)}">${avgPh.toFixed(2)}</span></td>
             <td>${avgAlk.toFixed(1)}</td>
         `
-        tr.addEventListener('click', () => showDayDetail(day))
+        tr.addEventListener('click', () => showDayDetail(day, pond))
         tbody.appendChild(tr)
     })
+
 }
 
 function computeAlarmStatus(dayRecords) {
     let dangerCount = 0, warningCount = 0
     dayRecords.forEach(r => {
-        const pc = phColor(effPh(r)), ac = alkColor(effAlk(r))
+        const pc = phRecordColor(r), ac = alkColor(effAlk(r))
         if (pc === '#FF4444' || ac === '#FF4444') dangerCount++
         else if (pc === '#FFD700' || ac === '#FFD700') warningCount++
     })
-    if (dangerCount > 0) return { level: 'danger', text: `NGUY HIỂM — ${dangerCount}/${dayRecords.length} mẫu vượt ngưỡng an toàn` }
-    if (warningCount > 0) return { level: 'warning', text: `CẢNH BÁO — ${warningCount}/${dayRecords.length} mẫu ở ngưỡng cần theo dõi` }
-    return { level: 'safe', text: `AN TOÀN — toàn bộ ${dayRecords.length} mẫu trong ngưỡng cho phép` }
+    // Banner's background still follows the worst case (danger wins), but the
+    // text mentions BOTH counts when they co-occur instead of hiding the
+    // warning-level samples just because some others already hit danger.
+    const total = dayRecords.length
+    if (dangerCount > 0) {
+        let text = `Nguy hiểm - ${dangerCount}/${total} mẫu ở ngưỡng nguy hiểm`
+        if (warningCount > 0) text += `, ${warningCount}/${total} mẫu ở ngưỡng cảnh báo`
+        return { level: 'danger', text }
+    }
+    if (warningCount > 0) return { level: 'warning', text: `Cần kiểm tra - ${warningCount}/${total} mẫu ở ngưỡng cảnh báo` }
+    return { level: 'safe', text: `An toàn - toàn bộ ${total} mẫu trong ngưỡng cho phép` }
 }
 
 // Draws a semicircle risk gauge: colored zones from `min` to `max`, with a
 // needle pointing at `value`. zones: [{ from, to, color }] covering min..max.
+// Zone boundary values (min..max, de-duplicated) — just the printed numbers
+// around the band, no tick lines, like a SCADA dial's scale.
+function _gaugeTicks(zones) {
+    const vals = new Set()
+    zones.forEach(zone => { vals.add(zone.from); vals.add(zone.to) })
+    return Array.from(vals).sort((a, b) => a - b)
+}
+
+function _fmtGaugeTick(v) {
+    return Number.isInteger(v) ? String(v) : v.toFixed(1)
+}
+
+// Conic gradient instead of one hard-edged color per zone — blends smoothly
+// through each boundary instead of cutting straight from e.g. red to yellow.
+// createConicGradient's offsets run 0..1 over a FULL turn starting at
+// `startAngle`; our dial only ever covers half a turn (toAngle's range is
+// min..max → Math.PI..2*Math.PI), so min..max maps to offsets 0..0.5 here.
+function _gaugeGradient(ctx, cx, cy, min, max, zones) {
+    const gradient = ctx.createConicGradient(Math.PI, cx, cy)
+    const toOffset = (v) => (Math.max(min, Math.min(max, v)) - min) / (max - min) * 0.5
+    gradient.addColorStop(0, zones[0].color)
+    zones.forEach(zone => {
+        gradient.addColorStop(toOffset((zone.from + zone.to) / 2), zone.color)
+    })
+    gradient.addColorStop(0.5, zones[zones.length - 1].color)
+    return gradient
+}
+
 function drawGauge(canvasId, value, min, max, zones) {
     const canvas = document.getElementById(canvasId)
     const ctx = canvas.getContext('2d')
     const w = canvas.width, h = canvas.height
     ctx.clearRect(0, 0, w, h)
 
-    const cx = w / 2, cy = h - 14
-    const radius = Math.min(w / 2 - 14, h - 28)
+    const cx = w / 2, cy = h - 16
+    // Radius leaves a margin around the band for the number labels.
+    const radius = Math.min(w / 2 - 32, h - 42)
     const toAngle = (v) => Math.PI + (Math.max(min, Math.min(max, v)) - min) / (max - min) * Math.PI
 
-    zones.forEach(zone => {
-        ctx.beginPath()
-        ctx.arc(cx, cy, radius, toAngle(zone.from), toAngle(zone.to))
-        ctx.lineWidth = 18
-        ctx.strokeStyle = zone.color
-        ctx.stroke()
+    ctx.beginPath()
+    ctx.arc(cx, cy, radius, toAngle(min), toAngle(max))
+    ctx.lineWidth = 18
+    ctx.strokeStyle = _gaugeGradient(ctx, cx, cy, min, max, zones)
+    ctx.stroke()
+
+    // Canvas drawing can't see CSS vars — pick ink color by theme directly so
+    // labels/needle stay readable on the dark surface (was always #0a2c4f).
+    const inkColor = document.documentElement.getAttribute('data-theme') === 'dark' ? '#ffffff' : '#0a2c4f'
+
+    ctx.font = 'bold 13px sans-serif'
+    ctx.fillStyle = inkColor
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    _gaugeTicks(zones).forEach(tick => {
+        const a = toAngle(tick)
+        const labelR = radius + 22
+        ctx.fillText(_fmtGaugeTick(tick), cx + labelR * Math.cos(a), cy + labelR * Math.sin(a))
     })
 
+    // Needle — short & thick (SCADA dial style), tip almost touching the
+    // band's inner edge instead of leaving a big gap.
     const angle = toAngle(value)
-    const needleLen = radius - 16
+    const needleLen = radius
     ctx.beginPath()
     ctx.moveTo(cx, cy)
     ctx.lineTo(cx + needleLen * Math.cos(angle), cy + needleLen * Math.sin(angle))
-    ctx.lineWidth = 3
-    ctx.strokeStyle = '#0a2c4f'
+    ctx.lineWidth = 7
+    ctx.lineCap = 'round'
+    ctx.strokeStyle = inkColor
     ctx.stroke()
 
     ctx.beginPath()
-    ctx.arc(cx, cy, 5, 0, Math.PI * 2)
-    ctx.fillStyle = '#0a2c4f'
+    ctx.arc(cx, cy, 7, 0, Math.PI * 2)
+    ctx.fillStyle = inkColor
     ctx.fill()
 }
 
@@ -555,25 +734,99 @@ function animateGaugeNeedle(canvasId, finalValue, min, max, zones) {
     gaugeAnimHandles[canvasId] = requestAnimationFrame(frame)
 }
 
+// avgPh/avgAlk below blend sáng+chiều samples together (whole-day average),
+// so these use phColor()'s envelope range.
 const PH_GAUGE_ZONES = [
     { from: 5,   to: 7,   color: '#FF4444' },
     { from: 7,   to: 7.5, color: '#FFD700' },
     { from: 7.5, to: 8.5, color: '#00E676' },
-    { from: 8.5, to: 9,   color: '#FFD700' },
-    { from: 9,   to: 10,  color: '#FF4444' }
+    { from: 8.5, to: 9.0, color: '#FFD700' },
+    { from: 9.0, to: 10,  color: '#FF4444' }
 ]
 
 const ALK_GAUGE_ZONES = [
-    { from: 0,   to: 30,  color: '#FF4444' },
-    { from: 30,  to: 50,  color: '#FFD700' },
-    { from: 50,  to: 150, color: '#00E676' },
-    { from: 150, to: 200, color: '#FFD700' },
+    { from: 0,   to: 60,  color: '#FF4444' },
+    { from: 60,  to: 80,  color: '#FFD700' },
+    { from: 80,  to: 160, color: '#00E676' },
+    { from: 160, to: 200, color: '#FFD700' },
     { from: 200, to: 250, color: '#FF4444' }
 ]
 
-function showDayDetail(day) {
-    const dayRecords = dailyGroups[day].slice().sort((a, b) => new Date(a.captured_at) - new Date(b.captured_at))
-    document.getElementById('dayDetailTitle').textContent = `Chi tiết ngày ${day}`
+function _renderAlkMonthlyChart(monthKey) {
+    const [year, month] = monthKey.split('-').map(Number)
+    const days = Object.keys(dailyGroups)
+        .filter(d => { const p = parseDay(d); return p.getFullYear() === year && p.getMonth() + 1 === month })
+        .sort((a, b) => parseDay(a) - parseDay(b))
+
+    const labels = days
+    const tgtValues = days.map(day => {
+        const recs = dailyGroups[day].filter(r => r.alk_tgt !== null && r.alk_tgt !== undefined)
+        if (recs.length === 0) return null
+        return recs.reduce((s, r) => s + Number(r.alk_tgt), 0) / recs.length
+    })
+    const mglValues = days.map(day => {
+        const recs = dailyGroups[day].filter(r => r.alk_mgl !== null && r.alk_mgl !== undefined)
+        if (recs.length === 0) return null
+        return recs.reduce((s, r) => s + Number(r.alk_mgl), 0) / recs.length
+    })
+
+    if (alkLineChartInstance) alkLineChartInstance.destroy()
+    alkLineChartInstance = new Chart(document.getElementById('alkLineChart'), {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [
+                { label: 'Kiềm (mg/L)', data: tgtValues, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.10)', fill: false, tension: 0.3, spanGaps: true, pointRadius: 4 },
+                { label: 'ΔpH (mg/L)', data: mglValues, borderColor: '#16a34a', backgroundColor: 'rgba(22,163,74,0.12)',  fill: true,  tension: 0.3, spanGaps: true, pointRadius: 4 }
+            ]
+        },
+        options: {
+            responsive: true,
+            scales: {
+                y: { min: 0, title: { display: true, text: 'mg/L' } },
+                x: { ticks: { maxRotation: 45 } }
+            }
+        }
+    })
+
+    // Độ lệch chuẩn kiềm theo tháng — dùng daily-avg alk_tgt (luôn có) của tháng này
+    const monthAlkValues = tgtValues.filter(v => v !== null && !isNaN(v))
+    const alkStdEl = document.getElementById('alkStdDev')
+    if (alkStdEl) alkStdEl.textContent = monthAlkValues.length > 1 ? '±' + stdDev(monthAlkValues).toFixed(2) + ' mg/L' : '--'
+}
+
+function _populateAlkMonthSelect(selectMonthKey) {
+    const months = {}
+    Object.keys(dailyGroups).forEach(day => {
+        const d = parseDay(day)
+        const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
+        months[key] = `Tháng ${d.getMonth()+1}/${d.getFullYear()}`
+    })
+    const sel = document.getElementById('alkMonthSelect')
+    const sorted = Object.keys(months).sort((a, b) => b.localeCompare(a))
+    sel.innerHTML = sorted.map(k => `<option value="${k}"${k === selectMonthKey ? ' selected' : ''}>${months[k]}</option>`).join('')
+    _renderAlkMonthlyChart(sel.value)
+}
+
+document.getElementById('alkMonthSelect').addEventListener('change', () => {
+    _renderAlkMonthlyChart(document.getElementById('alkMonthSelect').value)
+})
+
+let _currentDayDetail = { day: null, pond: null }
+
+function showDayDetail(day, pond) {
+    _currentDayDetail = { day, pond }
+    const allDay = dailyGroups[day] || []
+    const dayRecords = (pond !== undefined && pond !== null
+        ? allDay.filter(r => {
+            const rp = (r.pond_idx !== null && r.pond_idx !== undefined) ? Number(r.pond_idx) : 0
+            return rp === Number(pond)
+          })
+        : allDay
+    ).slice().sort((a, b) => new Date(a.captured_at) - new Date(b.captured_at))
+
+    document.getElementById('dayDetailTitle').textContent =
+        pond !== undefined && pond !== null ? `Chi tiết ngày ${day} — Ao ${pond}` : `Chi tiết ngày ${day}`
 
     // Raw (one entry per record, null = gap) for charts — must stay aligned
     // with `labels` below; filtered versions (for avg/stdDev) come after.
@@ -594,38 +847,168 @@ function showDayDetail(day) {
     document.getElementById('phGaugeValue').textContent = avgPh.toFixed(2)
 
     animateGaugeNeedle('alkGaugeCanvas', avgAlk, 0, 250, ALK_GAUGE_ZONES)
-    document.getElementById('alkGaugeValue').textContent = avgAlk.toFixed(1) + ' mg/L'
+    document.getElementById('alkGaugeValue').innerHTML = `${avgAlk.toFixed(1)}<span class="gauge-unit">mg/L</span>`
 
     document.getElementById('phStdDev').textContent = '±' + stdDev(phValues).toFixed(3)
-    document.getElementById('alkStdDev').textContent = alkValues.length ? '±' + stdDev(alkValues).toFixed(2) + ' mg/L' : '--'
+    // alkStdDev is updated by _renderAlkMonthlyChart (monthly scope)
     const n = dayRecords.length
     document.getElementById('sampleConfidence').textContent = n >= 15 ? 'Cao' : n >= 5 ? 'Trung bình' : 'Thấp'
 
     const labels = dayRecords.map(r => new Date(r.captured_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }))
 
-    if (phLineChartInstance) phLineChartInstance.destroy()
-    phLineChartInstance = new Chart(document.getElementById('phLineChart'), {
+    // pH split into 2 mini charts (sáng/chiều) — separate from effPh's merged
+    // value above, which stays as-is for the gauge/stdDev aggregate stats.
+    const phAmValuesRaw = dayRecords.map(r => (r.ph_am !== null && r.ph_am !== undefined) ? Number(r.ph_am) : null)
+    const phPmValuesRaw = dayRecords.map(r => (r.ph_pm !== null && r.ph_pm !== undefined) ? Number(r.ph_pm) : null)
+
+    if (phAmLineChartInstance) phAmLineChartInstance.destroy()
+    phAmLineChartInstance = new Chart(document.getElementById('phAmLineChart'), {
         type: 'line',
-        data: { labels, datasets: [{ label: 'pH', data: phValuesRaw, borderColor: '#0c6fa8', backgroundColor: 'rgba(12,111,168,0.12)', fill: true, tension: 0.3 }] },
+        data: { labels, datasets: [{ label: 'pH Sáng', data: phAmValuesRaw, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.12)', fill: true, tension: 0.3 }] },
         options: { responsive: true, scales: { y: { min: 5, max: 10 } } }
     })
 
-    if (alkLineChartInstance) alkLineChartInstance.destroy()
-    alkLineChartInstance = new Chart(document.getElementById('alkLineChart'), {
+    if (phPmLineChartInstance) phPmLineChartInstance.destroy()
+    phPmLineChartInstance = new Chart(document.getElementById('phPmLineChart'), {
         type: 'line',
-        data: { labels, datasets: [{ label: 'Kiềm (mg/L)', data: alkValuesRaw, borderColor: '#0a5d8f', backgroundColor: 'rgba(10,93,143,0.12)', fill: true, tension: 0.3 }] },
-        options: { responsive: true }
+        data: { labels, datasets: [{ label: 'pH Chiều', data: phPmValuesRaw, borderColor: '#f97316', backgroundColor: 'rgba(249,115,22,0.12)', fill: true, tension: 0.3 }] },
+        options: { responsive: true, scales: { y: { min: 5, max: 10 } } }
     })
+
+    // Alk chart is now monthly — sync its month selector to the day being viewed
+    const viewedDate = parseDay(day)
+    const viewedMonthKey = `${viewedDate.getFullYear()}-${String(viewedDate.getMonth()+1).padStart(2,'0')}`
+    _populateAlkMonthSelect(viewedMonthKey)
 
     const tempLineValues = dayRecords.map(r => Number(r.temp))
     if (tempLineChartInstance) tempLineChartInstance.destroy()
     tempLineChartInstance = new Chart(document.getElementById('tempLineChart'), {
         type: 'line',
-        data: { labels, datasets: [{ label: 'Nhiệt độ (°C)', data: tempLineValues, borderColor: '#d98c2b', backgroundColor: 'rgba(217,140,43,0.12)', fill: true, tension: 0.3 }] },
+        data: { labels, datasets: [{ label: 'Nhiệt độ (°C)', data: tempLineValues, borderColor: '#dc2626', backgroundColor: 'rgba(220,38,38,0.12)', fill: true, tension: 0.3 }] },
         options: { responsive: true }
     })
 
+    _renderDayFeedingCharts(day, pond)
     setViewMode('day-detail')
+}
+
+function _renderDayFeedingCharts(day, pond) {
+    const QUESTIONS = [
+        {
+            key: 'feedback', title: 'Nhá cữ',
+            labels: ['Hết', 'Còn ít', 'Còn nhiều', 'Không kiểm tra'],
+            colors: ['#4caf50', '#ffb300', '#ef5350', '#90a4ae']
+        },
+        {
+            key: 'route', title: 'Đường chạy',
+            labels: ['Đường chạy cũ', 'Đường chạy mới'],
+            colors: ['#5c6bc0', '#26c6da']
+        }
+    ]
+
+    const dayRecs = _feedingRecords.filter(r => {
+        if (!r.captured_at) return false
+        if (new Date(r.captured_at).toLocaleDateString('vi-VN') !== day) return false
+        if (pond !== undefined && pond !== null) {
+            const rp = (r.pond_idx !== null && r.pond_idx !== undefined) ? Number(r.pond_idx) : 0
+            if (rp !== Number(pond)) return false
+        }
+        return true
+    })
+
+    const section = document.getElementById('dayFeedingSection')
+    if (dayRecs.length === 0) { section.classList.add('hidden'); return }
+    section.classList.remove('hidden')
+
+    const byPond = {}
+    dayRecs.forEach(r => {
+        const pond = (r.pond_idx !== null && r.pond_idx !== undefined) ? Number(r.pond_idx) : 0
+        if (!byPond[pond]) {
+            byPond[pond] = { totalKg: 0, feedback: {}, route: {} }
+        }
+        byPond[pond].totalKg += (r.food_kg !== null && r.food_kg !== undefined) ? Number(r.food_kg) : 0
+        QUESTIONS.forEach(q => {
+            const val = r[q.key] || '--'
+            byPond[pond][q.key][val] = (byPond[pond][q.key][val] || 0) + 1
+        })
+    })
+    const ponds = Object.keys(byPond).map(Number).sort((a, b) => a - b)
+
+    // line chart — food amount over time (individual records, sorted by time)
+    const feedSorted = dayRecs.slice().sort((a, b) => new Date(a.captured_at) - new Date(b.captured_at))
+    const feedLabels = feedSorted.map(r => new Date(r.captured_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }))
+    const feedValsLine = feedSorted.map(r => (r.food_kg !== null && r.food_kg !== undefined) ? Number(r.food_kg) : null)
+
+    if (_dayFeedBarChartInst) _dayFeedBarChartInst.destroy()
+    _dayFeedBarChartInst = new Chart(document.getElementById('dayFeedBarChart'), {
+        type: 'line',
+        data: {
+            labels: feedLabels,
+            datasets: [{
+                label: 'Lượng ăn (kg)',
+                data: feedValsLine,
+                borderColor: '#16a34a',
+                backgroundColor: 'rgba(22,163,74,0.10)',
+                fill: true,
+                tension: 0.3,
+                pointRadius: 5,
+                pointBackgroundColor: '#16a34a',
+                borderWidth: 2
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { display: true, labels: { color: '#4d6478', font: { size: 12 } } },
+                tooltip: { callbacks: { label: ctx => `${ctx.parsed.y.toFixed(2)} kg` } }
+            },
+            scales: {
+                y: { min: 0, title: { display: true, text: 'kg' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+                x: { grid: { color: 'rgba(0,0,0,0.05)' } }
+            }
+        }
+    })
+
+    // pie charts — 4 questions × N ponds
+    _dayFeedPieInsts.forEach(c => c.destroy())
+    _dayFeedPieInsts = []
+    const wrap = document.getElementById('dayFeedPieWrap')
+    wrap.innerHTML = ''
+
+    ponds.forEach(pond => {
+        const pondSection = document.createElement('div')
+        pondSection.className = 'feed-pond-section'
+        pondSection.innerHTML = `<div class="feed-pond-title">Ao ${pond} — ${byPond[pond].totalKg.toFixed(1)} kg</div><div class="feed-pie-row" id="feedPieRow_${pond}"></div>`
+        wrap.appendChild(pondSection)
+
+        const row = document.getElementById(`feedPieRow_${pond}`)
+        QUESTIONS.forEach((q, qi) => {
+            const counts = q.labels.map(lb => byPond[pond][q.key][lb] || 0)
+            const total  = counts.reduce((a, b) => a + b, 0)
+            if (total === 0) return
+            const pctLabels = q.labels.map((lb, i) =>
+                total > 0 ? `${lb} (${Math.round(counts[i] / total * 100)}%)` : lb)
+            const card = document.createElement('div')
+            card.className = 'feed-pie-card chart-card'
+            card.innerHTML = `<div class="feed-pie-label">${q.title}</div><canvas id="feedPie_${pond}_${qi}"></canvas>`
+            row.appendChild(card)
+            const inst = new Chart(document.getElementById(`feedPie_${pond}_${qi}`), {
+                type: 'pie',
+                data: {
+                    labels: pctLabels,
+                    datasets: [{ data: counts, backgroundColor: q.colors, borderWidth: 1 }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12 } },
+                        tooltip: { callbacks: { label: ctx => `${ctx.label}: ${ctx.parsed} lần` } }
+                    }
+                }
+            })
+            _dayFeedPieInsts.push(inst)
+        })
+    })
 }
 
 function renderTable(records) {
@@ -637,19 +1020,100 @@ function renderTable(records) {
         tr.innerHTML = recordRowHtml(r)
         tbody.appendChild(tr)
     })
+    tbody.querySelectorAll('.delete-btn').forEach(btn => {
+        btn.addEventListener('click', () => deleteTableRecord(btn.dataset.id))
+    })
 }
+
+// DELETE /api/water-quality/:id is admin-only (server-side). A real board
+// account viewing its own data here can't delete — point them at the admin.
+// But when an admin opens this same page via "Chi tiết" (?asDevice=..., see
+// shared.js's viewingAsDeviceUid), authHeaders() still carries the ADMIN's own
+// credentials, so the request passes requireAdminAuth — let it through.
+async function deleteTableRecord(id) {
+    if (!viewingAsDeviceUid) {
+        alert('Vui lòng liên hệ admin để xóa.')
+        return
+    }
+    if (!confirm('Xóa record này?')) return
+    try {
+        const res = await fetch(`/api/water-quality/${id}`, { method: 'DELETE', headers: authHeaders() })
+        if (!res.ok) { alert('Xóa thất bại'); return }
+        loadBoardData()
+    } catch (err) {
+        alert('Lỗi kết nối server')
+    }
+}
+
+// Sortable "Bảng dữ liệu" table — currentTableRecords holds the canonical
+// (unsorted-by-user) dataset from the last loadBoardData(); sorting re-renders
+// from that copy so it survives without refetching, and re-applies itself
+// after a refresh (loadBoardData calls applyCurrentTableSort() instead of
+// renderTable() directly once a sort is active).
+let currentTableRecords = []
+let tableSortKey = null
+let tableSortDir = 1   // 1 = ascending, -1 = descending
+
+function _tableSortValue(r, key) {
+    if (key === 'captured_at') return new Date(r.captured_at).getTime()
+    const v = r[key]
+    return (v === null || v === undefined) ? null : Number(v)
+}
+
+function applyCurrentTableSort() {
+    if (!tableSortKey) { renderTable(currentTableRecords); return }
+    const sorted = currentTableRecords.slice().sort((a, b) => {
+        const va = _tableSortValue(a, tableSortKey)
+        const vb = _tableSortValue(b, tableSortKey)
+        if (va === null && vb === null) return 0
+        if (va === null) return 1    // nulls always last, regardless of direction
+        if (vb === null) return -1
+        return (va - vb) * tableSortDir
+    })
+    renderTable(sorted)
+    document.querySelectorAll('#recordsHeadRow .sort-arrow').forEach(el => {
+        const dir = el.dataset.dir === 'asc' ? 1 : -1
+        el.classList.toggle('active', el.closest('th').dataset.sortKey === tableSortKey && dir === tableSortDir)
+    })
+}
+
+// Builds the ▲▼ buttons once per header cell instead of repeating near-identical
+// markup for all 10 columns in user.html.
+document.querySelectorAll('#recordsHeadRow th[data-sort-key]').forEach(th => {
+    const key = th.dataset.sortKey
+    const wrap = document.createElement('span')
+    wrap.className = 'sort-arrows'
+    wrap.innerHTML = '<span class="sort-arrow" data-dir="asc">▲</span><span class="sort-arrow" data-dir="desc">▼</span>'
+    th.appendChild(wrap)
+    wrap.querySelectorAll('.sort-arrow').forEach(el => {
+        el.addEventListener('click', () => {
+            tableSortKey = key
+            tableSortDir = el.dataset.dir === 'asc' ? 1 : -1
+            applyCurrentTableSort()
+        })
+    })
+})
 
 let _lastKnownLatestTs = null
 
 async function loadBoardData() {
     try {
-        const res = await fetch(apiUrl('/api/water-quality'), { headers: authHeaders() })
-        const records = await res.json()
+        const [wqRes, feedRes] = await Promise.all([
+            fetch(apiUrl('/api/water-quality'), { headers: authHeaders() }),
+            fetch(apiUrl('/api/feeding'),       { headers: authHeaders() })
+        ])
+        const records = await wqRes.json()
         records.sort((a, b) => a.id - b.id)
-        renderTable(records)
+        currentTableRecords = records
+        if (feedRes.ok) _feedingRecords = await feedRes.json()
+        applyCurrentTableSort()
         renderMap(records)
         renderStats(records)
         renderDailyStats(records)
+        // dailyGroups (built by renderDailyStats above) is what "Xem theo
+        // ngày" reads from — refresh it here so the dropdown has today's
+        // data even when this resolves after setViewMode('map') already ran.
+        populateMapDaySelect()
         loadRobotMarker()
         if (records.length > 0) {
             _lastKnownLatestTs = records.reduce((a, b) => new Date(a.captured_at) > new Date(b.captured_at) ? a : b).captured_at
@@ -662,13 +1126,13 @@ async function loadBoardData() {
 
 // Polls for newer records than what's currently loaded — raises the yellow
 // header dot instead of auto-refreshing, so the user decides when to reload.
+// Uses /latest (single row) instead of fetching all 2000 records.
 async function checkForNewData() {
     if (!_lastKnownLatestTs) return
     try {
-        const res = await fetch(apiUrl('/api/water-quality'), { headers: authHeaders() })
-        const records = await res.json()
-        if (records.length === 0) return
-        const latest = records.reduce((a, b) => new Date(a.captured_at) > new Date(b.captured_at) ? a : b)
+        const res    = await fetch(apiUrl('/api/water-quality/latest'), { headers: authHeaders() })
+        const latest = await res.json()
+        if (!latest) return
         if (new Date(latest.captured_at) > new Date(_lastKnownLatestTs)) {
             setNewDataAvailable(true)
         }
@@ -692,6 +1156,7 @@ function setViewMode(mode) {
     document.getElementById('robotPane').classList.toggle('hidden', mode !== 'robot')
     document.getElementById('robotDayDetailPane').classList.toggle('hidden', mode !== 'robot-day-detail')
     document.getElementById('dayDetailPane').classList.toggle('hidden', mode !== 'day-detail')
+    document.getElementById('feedingPane').classList.toggle('hidden', mode !== 'feeding')
     document.getElementById('infoPane').classList.toggle('hidden', mode !== 'info')
 
     document.getElementById('mapSaveBtn').classList.toggle('hidden', mode !== 'map')
@@ -705,9 +1170,13 @@ function setViewMode(mode) {
         btn.innerHTML = mapDrawBtnPencilHtml
     }
 
-    if (mode === 'map') setTimeout(() => map.invalidateSize(), 50)
+    if (mode === 'map') {
+        setTimeout(() => map.invalidateSize(), 50)
+        populateMapDaySelect()
+    }
     if (mode === 'info') loadProfile()
     if (mode === 'robot') loadRobotData()
+    if (mode === 'feeding') loadFeedingData()
     closeDrawer()
 }
 
@@ -717,11 +1186,14 @@ function gpsFixLabel(fix) {
     return fix === null || fix === undefined || !(fix in labels) ? '--' : labels[fix]
 }
 
-let robotDailyGroups = {}
-let robotBatteryChartInstance = null
-let robotGpsChartInstance = null
-let robotSpeedChartInstance = null
+let robotDailyGroups   = {}
+let _robotDataLoaded   = false
+let robotBatteryChartInstance  = null
+let robotGpsChartInstance      = null
+let robotSpeedChartInstance    = null
 let robotThrottleChartInstance = null
+let robotMissionDistChart      = null
+let robotActualDistChart       = null
 
 // Same red/yellow/green logic as MAVLink GPS_FIX_TYPE: <2 = no usable fix,
 // 2 = 2D (weak), >=3 = 3D or better (strong).
@@ -736,9 +1208,10 @@ function gpsFixColor(fix) {
 // (there's no explicit power-on/off event over MAVLink — the data simply
 // stops arriving once the board is off), the rest are day averages/latest.
 // Clicking a row drills into showRobotDayDetail() for that day.
-async function loadRobotData() {
+async function loadRobotData(force = false) {
+    if (_robotDataLoaded && !force) return
     try {
-        const res = await fetch(apiUrl('/api/robot'), { headers: authHeaders() })
+        const res = await fetch(apiUrl('/api/robot?days=30'), { headers: authHeaders() })
         const records = await res.json()
 
         robotDailyGroups = {}
@@ -772,6 +1245,7 @@ async function loadRobotData() {
             tr.className = 'clickable-row-light'
             tr.innerHTML = `
                 <td>${day}</td>
+                <td>${first.device_id || '--'}</td>
                 <td>${fmtTime(first.captured_at)}</td>
                 <td>${fmtTime(last.captured_at)}</td>
                 <td>${avgBatt !== null ? avgBatt.toFixed(0) : '--'}</td>
@@ -784,6 +1258,7 @@ async function loadRobotData() {
             tr.addEventListener('click', () => showRobotDayDetail(day))
             tbody.appendChild(tr)
         })
+        _robotDataLoaded = true
     } catch (err) {
         console.error('Failed to load robot telemetry', err)
     }
@@ -798,7 +1273,8 @@ function formatDuration(ms) {
 
 function showRobotDayDetail(day) {
     const dayRecords = robotDailyGroups[day].slice().sort((a, b) => new Date(a.captured_at) - new Date(b.captured_at))
-    document.getElementById('robotDayDetailTitle').textContent = `Robot ngày ${day}`
+    const robotId = dayRecords[0]?.device_id || ''
+    document.getElementById('robotDayDetailTitle').textContent = robotId ? `${robotId} — ${day}` : `Robot ngày ${day}`
 
     const first = dayRecords[0]
     const last = dayRecords[dayRecords.length - 1]
@@ -859,6 +1335,23 @@ function showRobotDayDetail(day) {
         type: 'line',
         data: { labels, datasets: [{ label: 'Throttle (%)', data: throttleValues, borderColor: '#e65100', backgroundColor: 'rgba(230,81,0,0.12)', fill: true, tension: 0.3 }] },
         options: { responsive: true, scales: { y: { min: 0, max: 100 } } }
+    })
+
+    const missionDistValues = dayRecords.map(r => r.mission_dist_m !== null && r.mission_dist_m !== undefined ? Number(r.mission_dist_m) : null)
+    const actualDistValues  = dayRecords.map(r => r.actual_dist_m  !== null && r.actual_dist_m  !== undefined ? Number(r.actual_dist_m)  : null)
+
+    if (robotMissionDistChart) robotMissionDistChart.destroy()
+    robotMissionDistChart = new Chart(document.getElementById('robotMissionDistChart'), {
+        type: 'line',
+        data: { labels, datasets: [{ label: 'Mission (m)', data: missionDistValues, borderColor: '#0288d1', backgroundColor: 'rgba(2,136,209,0.12)', fill: true, tension: 0.3, spanGaps: true }] },
+        options: { responsive: true, plugins: { tooltip: { callbacks: { label: ctx => ctx.parsed.y !== null ? `${ctx.parsed.y.toFixed(0)} m` : '--' } } }, scales: { y: { min: 0, title: { display: true, text: 'm' } } } }
+    })
+
+    if (robotActualDistChart) robotActualDistChart.destroy()
+    robotActualDistChart = new Chart(document.getElementById('robotActualDistChart'), {
+        type: 'line',
+        data: { labels, datasets: [{ label: 'Thực tế (m)', data: actualDistValues, borderColor: '#f57c00', backgroundColor: 'rgba(245,124,0,0.12)', fill: true, tension: 0.3, spanGaps: true }] },
+        options: { responsive: true, plugins: { tooltip: { callbacks: { label: ctx => ctx.parsed.y !== null ? `${ctx.parsed.y.toFixed(0)} m` : '--' } } }, scales: { y: { min: 0, title: { display: true, text: 'm' } } } }
     })
 
     setViewMode('robot-day-detail')
@@ -941,11 +1434,262 @@ document.getElementById('mapClearBtn').addEventListener('click', () => {
 
 document.getElementById('refreshBtn').addEventListener('click', () => {
     if (currentViewMode === 'robot') {
-        loadRobotData()
+        loadRobotData(true)
+    } else if (currentViewMode === 'feeding') {
+        loadFeedingData(true)
     } else {
         loadBoardData()
     }
 })
+
+// ── So sánh ao (modal) ────────────────────────────────────────────────────
+let _pondPhChartInst   = null
+let _pondAlkChartInst  = null
+let _pondFeedChartInst = null
+
+function _renderPondCompare() {
+    const byPond = {}
+    Object.values(dailyGroups).forEach(recs => {
+        recs.forEach(r => {
+            const pond = (r.pond_idx !== null && r.pond_idx !== undefined) ? Number(r.pond_idx) : 0
+            if (!byPond[pond]) byPond[pond] = { pond, phVals: [], alkVals: [], foodKg: 0 }
+            const ph  = effPh(r)
+            const alk = effAlk(r)
+            if (ph  !== null && !isNaN(ph))  byPond[pond].phVals.push(ph)
+            if (alk !== null && !isNaN(alk)) byPond[pond].alkVals.push(alk)
+        })
+    })
+    // merge feeding totals per pond
+    _feedingRecords.forEach(r => {
+        const pond = (r.pond_idx !== null && r.pond_idx !== undefined) ? Number(r.pond_idx) : 0
+        if (!byPond[pond]) byPond[pond] = { pond, phVals: [], alkVals: [], foodKg: 0 }
+        byPond[pond].foodKg += (r.food_kg !== null && r.food_kg !== undefined) ? Number(r.food_kg) : 0
+    })
+
+    const ponds = Object.values(byPond).sort((a, b) => a.pond - b.pond)
+    const body  = document.getElementById('pondCompareBody')
+    if (ponds.length === 0) {
+        body.innerHTML = '<p style="color:var(--ink-soft);text-align:center;padding:20px">Chưa có dữ liệu</p>'
+        return
+    }
+
+    const avg     = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null
+    const labels  = ponds.map(p => `Ao ${p.pond}`)
+    const phVals  = ponds.map(p => avg(p.phVals))
+    const alkVals = ponds.map(p => avg(p.alkVals))
+    const feedVals = ponds.map(p => parseFloat(p.foodKg.toFixed(2)))
+    const phColors  = phVals.map(v => phColor(v))
+    const alkColors = alkVals.map(v => alkColor(v))
+
+    const defined = arr => arr.filter(v => v !== null && !isNaN(v))
+    const phDef  = defined(phVals)
+    const alkDef = defined(alkVals)
+    const phDiff  = phDef.length  >= 2 ? Math.max(...phDef)  - Math.min(...phDef)  : null
+    const alkDiff = alkDef.length >= 2 ? Math.max(...alkDef) - Math.min(...alkDef) : null
+    const phMin = phDef.length ? Math.min(...phDef) : 5
+    const phMax = phDef.length ? Math.max(...phDef) : 10
+
+    body.innerHTML = `
+        <div class="compare-section-title">pH trung bình theo ao</div>
+        <canvas id="pondPhChart" height="160"></canvas>
+        ${phDiff !== null ? `<p class="compare-delta">Độ chênh lệch pH: <strong>${phDiff.toFixed(3)}</strong></p>` : ''}
+        <div class="compare-section-title" style="margin-top:20px">Kiềm trung bình theo ao (mg/L)</div>
+        <canvas id="pondAlkChart" height="160"></canvas>
+        ${alkDiff !== null ? `<p class="compare-delta">Độ chênh lệch kiềm: <strong>${alkDiff.toFixed(2)} mg/L</strong></p>` : ''}
+        <div class="compare-section-title" style="margin-top:20px">Lượng thức ăn theo ao (kg)</div>
+        <canvas id="pondFeedChart" height="160"></canvas>
+    `
+
+    if (_pondPhChartInst)   _pondPhChartInst.destroy()
+    if (_pondAlkChartInst)  _pondAlkChartInst.destroy()
+    if (_pondFeedChartInst) _pondFeedChartInst.destroy()
+
+    _pondPhChartInst = new Chart(document.getElementById('pondPhChart'), {
+        type: 'bar',
+        data: { labels, datasets: [{ label: 'pH TB', data: phVals.map(v => v !== null ? parseFloat(v.toFixed(3)) : null), backgroundColor: phColors, borderColor: phColors, borderWidth: 1, borderRadius: 5 }] },
+        options: { responsive: true, plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `pH: ${ctx.parsed.y.toFixed(2)}` } } }, scales: { y: { min: Math.max(0, phMin - 0.3), max: phMax + 0.3, title: { display: true, text: 'pH' } } } }
+    })
+
+    _pondAlkChartInst = new Chart(document.getElementById('pondAlkChart'), {
+        type: 'bar',
+        data: { labels, datasets: [{ label: 'Kiềm TB (mg/L)', data: alkVals.map(v => v !== null ? parseFloat(v.toFixed(2)) : null), backgroundColor: alkColors, borderColor: alkColors, borderWidth: 1, borderRadius: 5 }] },
+        options: { responsive: true, plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `Kiềm: ${ctx.parsed.y.toFixed(1)} mg/L` } } }, scales: { y: { min: 0, title: { display: true, text: 'mg/L' } } } }
+    })
+
+    _pondFeedChartInst = new Chart(document.getElementById('pondFeedChart'), {
+        type: 'bar',
+        data: { labels, datasets: [{ label: 'Tổng lượng ăn (kg)', data: feedVals, backgroundColor: 'rgba(76,175,80,0.7)', borderColor: 'rgba(76,175,80,1)', borderWidth: 1, borderRadius: 5 }] },
+        options: { responsive: true, plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => `${ctx.parsed.y.toFixed(2)} kg` } } }, scales: { y: { min: 0, title: { display: true, text: 'kg' } } } }
+    })
+}
+
+document.getElementById('comparePondsBtn').addEventListener('click', () => {
+    _renderPondCompare()
+    document.getElementById('pondCompareOverlay').classList.remove('hidden')
+})
+
+document.getElementById('pondCompareCloseBtn').addEventListener('click', () => {
+    document.getElementById('pondCompareOverlay').classList.add('hidden')
+})
+
+document.getElementById('pondCompareOverlay').addEventListener('click', (e) => {
+    if (e.target === document.getElementById('pondCompareOverlay'))
+        document.getElementById('pondCompareOverlay').classList.add('hidden')
+})
+
+// ── Dữ liệu cho ăn ────────────────────────────────────────────────────────
+let _feedingRecords = []
+let _feedingSortKey = 'captured_at'
+let _feedingSortDir = -1  // -1 = desc
+
+function _feedingSortBy(key) {
+    if (_feedingSortKey === key) {
+        _feedingSortDir *= -1
+    } else {
+        _feedingSortKey = key
+        _feedingSortDir = -1
+    }
+    _renderFeedingTable()
+}
+
+function _renderFeedingTable() {
+    const sorted = _feedingRecords.slice().sort((a, b) => {
+        const av = a[_feedingSortKey]
+        const bv = b[_feedingSortKey]
+        if (av === null || av === undefined) return 1
+        if (bv === null || bv === undefined) return -1
+        if (typeof av === 'string') return _feedingSortDir * av.localeCompare(bv, 'vi')
+        return _feedingSortDir * (av - bv)
+    })
+
+    const tbody = document.getElementById('feedingBody')
+    if (!tbody) return
+    tbody.innerHTML = ''
+
+    sorted.forEach(r => {
+        const ts = r.captured_at ? new Date(r.captured_at).toLocaleString('vi-VN') : '--'
+        const tr = document.createElement('tr')
+        tr.innerHTML = `
+            <td>${r.id}</td>
+            <td>Ao ${r.pond_idx ?? '--'}</td>
+            <td>${r.buoi ?? '--'}</td>
+            <td>${r.feedback ?? '--'}</td>
+            <td>${r.food_kg !== null && r.food_kg !== undefined ? Number(r.food_kg).toFixed(1) : '--'}</td>
+            <td>${r.decision ?? '--'}</td>
+            <td>${r.route ?? '--'}</td>
+            <td>${ts}</td>
+            <td><button class="small-btn danger-btn" data-feed-id="${r.id}">Xóa</button></td>
+        `
+        tbody.appendChild(tr)
+    })
+
+    tbody.querySelectorAll('[data-feed-id]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+            if (!confirm('Xóa bản ghi này?')) return
+            const id = btn.dataset.feedId
+            try {
+                const res = await fetch(apiUrl(`/api/feeding/${id}`), { method: 'DELETE', headers: authHeaders() })
+                if (!res.ok) { alert('Xóa thất bại'); return }
+                _feedingRecords = _feedingRecords.filter(x => x.id !== Number(id))
+                _renderFeedingTable()
+            } catch (err) {
+                alert('Lỗi kết nối server')
+            }
+        })
+    })
+}
+
+let _feedingDataLoaded = false
+
+async function loadFeedingData(force = false) {
+    if (_feedingDataLoaded && !force) return
+    try {
+        const res = await fetch(apiUrl('/api/feeding'), { headers: authHeaders() })
+        if (!res.ok) return
+        _feedingRecords = await res.json()
+        _renderFeedingTable()
+        _feedingDataLoaded = true
+    } catch (err) {
+        console.error('Failed to load feeding data', err)
+    }
+}
+
+// Sort on header click — delegate from the pane so it's always bound
+document.getElementById('feedingPane').addEventListener('click', (e) => {
+    const th = e.target.closest('th[data-sort-key]')
+    if (th) _feedingSortBy(th.dataset.sortKey)
+})
+
+// ── Excel export (.xlsx via SheetJS) ─────────────────────────────────────────
+function _downloadXlsx(filename, headers, rows) {
+    const data = [headers, ...rows.map(r => r.map(v => v === null || v === undefined ? '' : v))]
+    const ws = XLSX.utils.aoa_to_sheet(data)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Sheet1')
+    XLSX.writeFile(wb, filename)
+}
+
+function exportWqDay() {
+    const { day, pond } = _currentDayDetail
+    if (!day) return
+    const allDay = dailyGroups[day] || []
+    const recs = (pond !== undefined && pond !== null
+        ? allDay.filter(r => {
+            const rp = (r.pond_idx !== null && r.pond_idx !== undefined) ? Number(r.pond_idx) : 0
+            return rp === Number(pond)
+          })
+        : allDay
+    ).slice().sort((a, b) => new Date(a.captured_at) - new Date(b.captured_at))
+
+    const headers = ['STT', 'Thời gian', 'Ao', 'pH Sáng', 'pH Chiều', 'ΔpH', 'Kiềm (dKH)', 'Kiềm (mg/L)', 'Nhiệt độ (°C)', 'Lat', 'Lon']
+    const rows = recs.map((r, i) => [
+        i + 1,
+        r.captured_at ? new Date(r.captured_at).toLocaleString('vi-VN') : '',
+        r.pond_idx ?? '',
+        r.ph_am !== null && r.ph_am !== undefined ? Number(r.ph_am).toFixed(2) : '',
+        r.ph_pm !== null && r.ph_pm !== undefined ? Number(r.ph_pm).toFixed(2) : '',
+        r.delta_ph !== null && r.delta_ph !== undefined ? Number(r.delta_ph).toFixed(2) : '',
+        r.alk_dkh !== null && r.alk_dkh !== undefined ? Number(r.alk_dkh).toFixed(2) : '',
+        r.alk_mgl !== null && r.alk_mgl !== undefined ? Number(r.alk_mgl).toFixed(1) : '',
+        r.temp !== null && r.temp !== undefined ? Number(r.temp).toFixed(1) : '',
+        r.lat !== null && r.lat !== undefined ? Number(r.lat).toFixed(6) : '',
+        r.lon !== null && r.lon !== undefined ? Number(r.lon).toFixed(6) : ''
+    ])
+    const safePond = pond !== undefined && pond !== null ? `_ao${pond}` : ''
+    _downloadXlsx(`Water_monitoring_${day.replace(/\//g, '-')}${safePond}.xlsx`, headers, rows)
+}
+
+function exportFeedDay() {
+    const { day, pond } = _currentDayDetail
+    if (!day) return
+    const recs = _feedingRecords.filter(r => {
+        if (!r.captured_at) return false
+        if (new Date(r.captured_at).toLocaleDateString('vi-VN') !== day) return false
+        if (pond !== undefined && pond !== null) {
+            const rp = (r.pond_idx !== null && r.pond_idx !== undefined) ? Number(r.pond_idx) : 0
+            if (rp !== Number(pond)) return false
+        }
+        return true
+    }).slice().sort((a, b) => new Date(a.captured_at) - new Date(b.captured_at))
+
+    const headers = ['STT', 'Thời gian', 'Robot', 'Ao', 'Buổi', 'Lượng (kg)', 'Nhá cữ', 'Quyết định', 'Đường chạy']
+    const rows = recs.map((r, i) => [
+        i + 1,
+        r.captured_at ? new Date(r.captured_at).toLocaleString('vi-VN') : '',
+        r.device_id ?? '',
+        r.pond_idx ?? '',
+        r.buoi ?? '',
+        r.food_kg !== null && r.food_kg !== undefined ? Number(r.food_kg).toFixed(2) : '',
+        r.feedback ?? '',
+        r.decision ?? '',
+        r.route ?? ''
+    ])
+    const safePond = pond !== undefined && pond !== null ? `_ao${pond}` : ''
+    _downloadXlsx(`Feeding_${day.replace(/\//g, '-')}${safePond}.xlsx`, headers, rows)
+}
+
+document.getElementById('exportWqBtn').addEventListener('click', exportWqDay)
+document.getElementById('exportFeedBtn').addEventListener('click', exportFeedDay)
 
 initSession('device', () => {
     loadBoardData()

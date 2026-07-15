@@ -380,8 +380,29 @@ async function checkForNewData() {
 
 setInterval(checkForNewData, 20000)
 
-// Shows exactly one of the 4 panes (table/map/users/info), updates the drawer's
-// active item, and shows/hides the stats bar + "back to boards" bar accordingly.
+async function loadAdminInfo() {
+    try {
+        const res = await fetch('/api/auth/admin-info', { headers: authHeaders() })
+        const body = await res.json()
+        const el = document.getElementById('adminKeyDisplay')
+        if (el) el.value = body.adminKey || '--'
+    } catch (err) {
+        console.error('Failed to load admin info', err)
+    }
+}
+
+document.getElementById('adminKeyCopyBtn').addEventListener('click', () => {
+    const val = document.getElementById('adminKeyDisplay').value
+    if (!val || val === '--') return
+    navigator.clipboard.writeText(val).then(() => {
+        const btn = document.getElementById('adminKeyCopyBtn')
+        btn.textContent = 'Đã sao chép'
+        setTimeout(() => { btn.textContent = 'Sao chép' }, 2000)
+    })
+})
+
+// Shows exactly one of the 5 panes, updates the drawer's active item,
+// and shows/hides the stats bar + "back to boards" bar accordingly.
 // "info" needs a selected board — if none is selected yet, fall back to "users".
 function setViewMode(mode) {
     if (mode === 'info' && !currentBoardUid) {
@@ -396,6 +417,7 @@ function setViewMode(mode) {
     document.getElementById('tablePane').classList.toggle('hidden', mode !== 'table')
     document.getElementById('mapPane').classList.toggle('hidden', mode !== 'map')
     document.getElementById('infoPane').classList.toggle('hidden', mode !== 'info')
+    document.getElementById('adminInfoPane').classList.toggle('hidden', mode !== 'adminProfile')
 
     // statsBar/boardContextBar are for the per-board drill-down (table/info)
     // only — "map" is now the fleet-wide overview, no board context needed.
@@ -409,6 +431,8 @@ function setViewMode(mode) {
         loadFleetMarkers()
     } else if (mode === 'info') {
         loadProfileReadOnly()
+    } else if (mode === 'adminProfile') {
+        loadAdminInfo()
     }
     closeDrawer()
 }

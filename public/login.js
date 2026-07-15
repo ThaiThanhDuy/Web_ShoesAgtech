@@ -31,13 +31,17 @@ document.getElementById('loginSubmitBtn').addEventListener('click', async () => 
     }
 
     if (isRegisterMode) {
-        const deviceUid = document.getElementById('loginDeviceUid').value.trim()
-        const adminKey = document.getElementById('loginAdminKey').value
-        if (!deviceUid || !adminKey) {
-            msg.textContent = 'Điền đủ Device UID và Admin key'
+        const robotType = document.getElementById('loginRobotType').value
+        const robotNumRaw = document.getElementById('loginRobotNum').value.trim()
+        const adminKey  = document.getElementById('loginAdminKey').value
+        const robotNum  = parseInt(robotNumRaw, 10)
+        if (!robotType || robotNumRaw === '' || isNaN(robotNum) || robotNum < 0 || robotNum > 999 || !adminKey) {
+            msg.textContent = 'Chọn loại robot, nhập ID (0–999) và Admin key'
             msg.className = 'error'
             return
         }
+        const idStr     = robotNum < 10 ? '0' + robotNum : '' + robotNum
+        const deviceUid = robotType + '-' + idStr
         try {
             const res = await fetch('/api/devices/register', {
                 method: 'POST',

@@ -9,6 +9,7 @@ const deviceRoutes = require('./routes/devices')
 const authRoutes = require('./routes/auth')
 const profileRoutes = require('./routes/profile')
 const robotRoutes = require('./routes/robot')
+const feedingRoutes = require('./routes/feeding')
 
 const app = express()
 app.use(cors())
@@ -23,9 +24,10 @@ app.use('/api/devices', deviceRoutes)
 app.use('/api/auth', authRoutes)
 app.use('/api/profile', profileRoutes)
 app.use('/api/robot', robotRoutes)
+app.use('/api/feeding', feedingRoutes)
 app.use(express.static(path.join(__dirname, '..', 'public')))
 
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
-    console.log(`Water quality server listening on port ${PORT}`)
+    console.log(`Shoes Agtech server listening on port ${PORT}`)
 })

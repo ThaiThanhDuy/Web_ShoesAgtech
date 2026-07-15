@@ -7,28 +7,36 @@ USE shoes_agtech;
 -- since boards may send other kinds of readings in the future, not just water quality.
 --
 -- ph_am/ph_pm: split by local wall-clock hour at capture (00h-12h / 12h-24h) —
--- only one of the two is set per row, mirroring the firmware's own sáng/chiều
--- slot split (AP_ShoesAgtech.cpp, _ph_update_daily_slots).
+-- only one is set from a given visit; QGC carries the other forward from an
+-- earlier-today capture within 1.5m of the same point (see
+-- _findTodaySameSpotPartner() in FlyViewCustomLayer.qml) so a row can end up
+-- with both once a point has been visited twice. NOT based on firmware's own
+-- slotStatus (that's a single global slot per day, no GPS awareness — can't
+-- tell apart multiple sampling points).
+-- delta_ph: ph_pm - ph_am, set once a row has both (NULL until then).
 -- alk_tgt: firmware's alkMgl as-is, always sent — "real-time" estimate whatever
--- its current quality (single-point heuristic when today's slots aren't full).
--- alk_mgl: only set when the firmware reported slotStatus=FULL (today's
--- sáng+chiều pH both available, so alkMgl came from the ΔpH titration formula
--- — see AP_SHOESAGTECH_REFERENCE.md §"Logic phân slot kiềm ΔpH") — the more
--- accurate value; NULL otherwise rather than a guessed number.
+-- its current quality (single-point heuristic).
+-- alk_mgl: QGC-computed once a row has both ph_am+ph_pm, using the exact same
+-- ΔpH titration formula as firmware's _ph_calc_alkalinity() (ported in
+-- DataShoesAgtech.qml's _calcAlkalinity()) — the more accurate value; NULL
+-- otherwise rather than a guessed number. See Shoes_agtech_data_sync.md.
 -- `ph` kept (nullable) for historical rows captured before this split existed.
 CREATE TABLE IF NOT EXISTS DATA (
     id          INT AUTO_INCREMENT PRIMARY KEY,
     device_id   VARCHAR(64)  NOT NULL DEFAULT 'unknown',
-    wp_idx      INT          NOT NULL,
+    wp_idx      VARCHAR(20)  NOT NULL DEFAULT '0',
     lat         DOUBLE       NOT NULL,
     lon         DOUBLE       NOT NULL,
     alt         DOUBLE       NULL,
     ph          DOUBLE       NULL,
     ph_am       DOUBLE       NULL,
     ph_pm       DOUBLE       NULL,
+    delta_ph    DOUBLE       NULL,
     temp        DOUBLE       NULL,
     alk_tgt     DOUBLE       NULL,
+    alk_dkh     DOUBLE       NULL,
     alk_mgl     DOUBLE       NULL,
+    pond_idx    INT          NULL,
     captured_at DATETIME     NOT NULL,
     synced_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
@@ -94,3 +102,7 @@ CREATE TABLE IF NOT EXISTS robot_telemetry (
     INDEX idx_captured_at (captured_at),
     INDEX idx_device_id   (device_id)
 );
+
+-- Migration: run once on existing databases to add new columns.
+-- ALTER TABLE `DATA` ADD COLUMN `alk_dkh`  DOUBLE NULL AFTER `alk_tgt`;
+-- ALTER TABLE `DATA` ADD COLUMN `pond_idx` INT    NULL AFTER `alk_mgl`;

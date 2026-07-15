@@ -21,7 +21,14 @@
             <input id="loginPassword" type="password" placeholder="Password" autocomplete="current-password">
 
             <div id="registerExtraFields" class="hidden">
-                <input id="loginDeviceUid" type="text" placeholder="Device UID (AA:BB:CC:...)">
+                <div class="robot-id-row">
+                    <select id="loginRobotType">
+                        <option value="S16S">S16S</option>
+                        <option value="S30">S30</option>
+                    </select>
+                    <span class="robot-id-sep">-</span>
+                    <input id="loginRobotNum" type="number" min="0" max="999" placeholder="ID (0–999)">
+                </div>
                 <input id="loginAdminKey" type="password" placeholder="Admin key (để đăng ký board mới)">
             </div>
 

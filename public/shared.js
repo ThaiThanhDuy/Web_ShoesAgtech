@@ -79,8 +79,8 @@ async function initSession(expectedRole, onReady) {
 // would otherwise silently change the ADMIN's own login password instead of
 // the board's (it always acts on the credentials in authHeaders()).
 function _setupImpersonationUi(deviceUid) {
-    const changePwItem = document.getElementById('changePasswordMenuItem')
-    if (changePwItem) changePwItem.classList.add('hidden')
+    const changePwSection = document.getElementById('changePwSection')
+    if (changePwSection) changePwSection.classList.add('hidden')
 
     const welcome = document.getElementById('welcomeMsg')
     if (welcome) welcome.textContent = `Đang xem: ${deviceUid} (admin)`
@@ -127,20 +127,15 @@ document.addEventListener('click', () => {
     document.getElementById('userMenuDropdown').classList.add('hidden')
 })
 
-// admin.html doesn't have this item (no admin-personal profile to show) — guard it.
 const infoMenuItem = document.getElementById('infoMenuItem')
 if (infoMenuItem) {
     infoMenuItem.addEventListener('click', (e) => {
         e.preventDefault()
-        if (typeof setViewMode === 'function') setViewMode('info')
+        if (typeof setViewMode === 'function') {
+            setViewMode(session && session.role === 'admin' ? 'adminProfile' : 'info')
+        }
     })
 }
-
-document.getElementById('changePasswordMenuItem').addEventListener('click', (e) => {
-    e.preventDefault()
-    document.getElementById('changePasswordPanel').classList.toggle('hidden')
-    document.getElementById('changePasswordMsg').textContent = ''
-})
 
 document.getElementById('logoutMenuItem').addEventListener('click', (e) => {
     e.preventDefault()
@@ -239,3 +234,43 @@ window.addEventListener('online', checkServerHealth)
 window.addEventListener('offline', () => setConnectionStatus(false))
 checkServerHealth()
 setInterval(checkServerHealth, 15000)
+
+// Light/Dark/Auto theme — persisted in localStorage (per browser, not per
+// account, see the "themeSelect" <select> in user.html's "Thông tin" page /
+// admin.html's account dropdown). Applied immediately via [data-theme="dark"]
+// CSS overrides (see style.css's :root). The actual <html data-theme>
+// attribute is already set as early as possible by an inline script in
+// <head>, before this file loads, to avoid a flash of the wrong theme — this
+// just keeps the <select> in sync with whatever that inline script applied.
+function _systemPrefersDark() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)
+}
+
+function _applyTheme(theme) {
+    const dark = theme === 'dark' || (theme === 'auto' && _systemPrefersDark())
+    if (dark) document.documentElement.setAttribute('data-theme', 'dark')
+    else document.documentElement.removeAttribute('data-theme')
+}
+
+function setTheme(theme) {
+    _applyTheme(theme)
+    try { localStorage.setItem('wqTheme', theme) } catch (e) { /* private mode etc. */ }
+}
+
+function _storedTheme() {
+    try { return localStorage.getItem('wqTheme') || 'light' } catch (e) { return 'light' }
+}
+
+const themeSelect = document.getElementById('themeSelect')
+if (themeSelect) {
+    themeSelect.value = _storedTheme()
+    themeSelect.addEventListener('change', () => setTheme(themeSelect.value))
+}
+
+// Re-applies live if the OS/browser theme flips while "auto" is selected —
+// otherwise it'd only pick up the new system theme on next page load.
+if (window.matchMedia) {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+        if (_storedTheme() === 'auto') _applyTheme('auto')
+    })
+}

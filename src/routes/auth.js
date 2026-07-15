@@ -2,6 +2,7 @@ const express = require('express')
 const router = express.Router()
 const bcrypt = require('bcryptjs')
 const pool = require('../db')
+const { requireDeviceAuth } = require('../middleware/deviceAuth')
 
 // POST /api/auth/login — web dashboard login (admin or a registered board account)
 // Body: { username, password }
@@ -71,6 +72,29 @@ router.put('/password', async (req, res) => {
         console.error(err)
         res.status(500).json({ error: 'Database error' })
     }
+})
+
+// GET /api/auth/admin-info — returns the calling admin's own admin_key
+router.get('/admin-info', async (req, res) => {
+    const username = req.headers['x-username']
+    const password = req.headers['x-password']
+    if (!username || !password) return res.status(401).json({ error: 'Login required' })
+    try {
+        const [rows] = await pool.query('SELECT password_hash, admin_key FROM admins WHERE username = ?', [username])
+        if (rows.length === 0 || !(await bcrypt.compare(password, rows[0].password_hash))) {
+            return res.status(401).json({ error: 'Admin access required' })
+        }
+        res.json({ adminKey: rows[0].admin_key })
+    } catch (err) {
+        console.error(err)
+        res.status(500).json({ error: 'Database error' })
+    }
+})
+
+// POST /api/auth/device — QGC verifies device credentials before data sync begins.
+// Checks x-username, x-password, and x-device-uid headers via requireDeviceAuth.
+router.post('/device', requireDeviceAuth, (req, res) => {
+    res.json({ ok: true })
 })
 
 module.exports = router

@@ -4,8 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Dashboard_ShoesAgtech — Admin</title>
+<script>try{var t=localStorage.getItem('wqTheme');if(t==='dark'||(t==='auto'&&window.matchMedia('(prefers-color-scheme: dark)').matches))document.documentElement.setAttribute('data-theme','dark')}catch(e){}</script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<link rel="stylesheet" href="style.css?v=26">
+<link rel="stylesheet" href="style.css?v=33">
 <link rel="icon" type="image/png" href="favicon.png?v=1">
 </head>
 <body>
@@ -28,7 +29,7 @@
                     </button>
                     <div id="userMenuDropdown" class="user-dropdown hidden">
                         <div id="welcomeMsg" class="dropdown-welcome"></div>
-                        <a href="#" id="changePasswordMenuItem">Đổi mật khẩu</a>
+                        <a href="#" id="infoMenuItem">Thông tin</a>
                         <a href="#" id="logoutMenuItem">Thoát</a>
                     </div>
                 </div>
@@ -46,14 +47,6 @@
                 Fleet
             </a>
         </nav>
-
-        <div id="changePasswordPanel" class="register-panel hidden">
-            <input id="currentPasswordCheck" type="password" placeholder="Mật khẩu hiện tại">
-            <input id="newPassword" type="password" placeholder="Mật khẩu mới">
-            <input id="newPasswordConfirm" type="password" placeholder="Nhập lại mật khẩu mới">
-            <button id="changePasswordSubmitBtn">Lưu</button>
-            <span id="changePasswordMsg"></span>
-        </div>
 
         <div id="boardContextBar" class="board-context-bar hidden">
             <button id="backToBoardsBtn">← Danh sách tài khoản</button>
@@ -114,10 +107,39 @@
                 <div class="profile-row"><span class="profile-label">ID thiết bị</span><span id="viewDeviceUid">--</span></div>
             </div>
         </div>
+
+        <div id="adminInfoPane" class="table-wrap pane hidden">
+            <h3>Thông tin tài khoản</h3>
+            <div class="profile-form">
+                <label>Admin key
+                    <div class="adminkey-row">
+                        <input id="adminKeyDisplay" type="text" disabled>
+                        <button id="adminKeyCopyBtn" class="small-btn">Sao chép</button>
+                    </div>
+                </label>
+                <label>Giao diện
+                    <select id="themeSelect">
+                        <option value="light">Sáng</option>
+                        <option value="dark">Tối</option>
+                        <option value="auto">Tự động (theo trình duyệt)</option>
+                    </select>
+                </label>
+            </div>
+            <div id="changePwSection" class="profile-form" style="margin-top:1.2rem;border-top:1px solid var(--border);padding-top:1rem">
+                <h4 style="margin:0 0 0.6rem">Đổi mật khẩu</h4>
+                <label>Mật khẩu hiện tại<input id="currentPasswordCheck" type="password" placeholder="Mật khẩu hiện tại"></label>
+                <label>Mật khẩu mới<input id="newPassword" type="password" placeholder="Mật khẩu mới (tối thiểu 4 ký tự)"></label>
+                <label>Nhập lại mật khẩu mới<input id="newPasswordConfirm" type="password" placeholder="Nhập lại mật khẩu mới"></label>
+                <div class="profile-actions">
+                    <button id="changePasswordSubmitBtn">Lưu mật khẩu</button>
+                    <span id="changePasswordMsg"></span>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="shared.js?v=6"></script>
+    <script src="shared.js?v=8"></script>
     <script src="admin.js?v=12"></script>
 </body>
 </html>
