@@ -1,6 +1,10 @@
-// Limit x-axis tick density only on narrow mobile screens so labels don't
-// overlap; desktop charts keep Chart.js auto-calculated tick count.
-const _CHART_X_TICKS = window.innerWidth < 768 ? { maxTicksLimit: 6, autoSkip: true } : {}
+// Mobile chart helpers — only affect narrow screens; desktop keeps defaults.
+const _MOBILE       = window.innerWidth < 768
+const _CHART_X_TICKS = _MOBILE ? { maxTicksLimit: 6, autoSkip: true } : {}
+// Hide data-point dots on mobile (50+ points overlap badly on narrow canvas).
+// GPS chart uses _CHART_PT_GPS (1px) to keep per-point fix-type colour visible.
+const _CHART_PT     = _MOBILE ? 0 : 3
+const _CHART_PT_GPS = _MOBILE ? 1 : 4
 
 // ph_am/ph_pm: only one set per record (split by local hour-of-day at capture)
 // — this picks whichever is present. alk_tgt is firmware's real-time alkMgl
@@ -1296,7 +1300,7 @@ function showRobotDayDetail(day) {
     if (robotBatteryChartInstance) robotBatteryChartInstance.destroy()
     robotBatteryChartInstance = new Chart(document.getElementById('robotBatteryLineChart'), {
         type: 'line',
-        data: { labels, datasets: [{ label: 'Pin (%)', data: battValues, borderColor: '#2e9e4f', backgroundColor: 'rgba(46,158,79,0.12)', fill: true, tension: 0.3 }] },
+        data: { labels, datasets: [{ label: 'Pin (%)', data: battValues, borderColor: '#2e9e4f', backgroundColor: 'rgba(46,158,79,0.12)', fill: true, tension: 0.3, pointRadius: _CHART_PT }] },
         options: { responsive: true, scales: { y: { min: 0, max: 100 }, x: { ticks: { ..._CHART_X_TICKS } } } }
     })
 
@@ -1315,7 +1319,7 @@ function showRobotDayDetail(day) {
                 backgroundColor:      'rgba(12,111,168,0.12)',
                 pointBackgroundColor: pointColors,
                 pointBorderColor:     pointColors,
-                pointRadius:          4,
+                pointRadius:          _CHART_PT_GPS,
                 fill:                 true,
                 tension:              0.3
             }]
@@ -1328,7 +1332,7 @@ function showRobotDayDetail(day) {
     if (robotSpeedChartInstance) robotSpeedChartInstance.destroy()
     robotSpeedChartInstance = new Chart(document.getElementById('robotSpeedLineChart'), {
         type: 'line',
-        data: { labels, datasets: [{ label: 'Vận tốc (m/s)', data: speedValues, borderColor: '#9c27b0', backgroundColor: 'rgba(156,39,176,0.12)', fill: true, tension: 0.3 }] },
+        data: { labels, datasets: [{ label: 'Vận tốc (m/s)', data: speedValues, borderColor: '#9c27b0', backgroundColor: 'rgba(156,39,176,0.12)', fill: true, tension: 0.3, pointRadius: _CHART_PT }] },
         options: { responsive: true, scales: { y: { min: 0 }, x: { ticks: { ..._CHART_X_TICKS } } } }
     })
 
@@ -1337,7 +1341,7 @@ function showRobotDayDetail(day) {
     if (robotThrottleChartInstance) robotThrottleChartInstance.destroy()
     robotThrottleChartInstance = new Chart(document.getElementById('robotThrottleLineChart'), {
         type: 'line',
-        data: { labels, datasets: [{ label: 'Throttle (%)', data: throttleValues, borderColor: '#e65100', backgroundColor: 'rgba(230,81,0,0.12)', fill: true, tension: 0.3 }] },
+        data: { labels, datasets: [{ label: 'Throttle (%)', data: throttleValues, borderColor: '#e65100', backgroundColor: 'rgba(230,81,0,0.12)', fill: true, tension: 0.3, pointRadius: _CHART_PT }] },
         options: { responsive: true, scales: { y: { min: 0, max: 100 }, x: { ticks: { ..._CHART_X_TICKS } } } }
     })
 
@@ -1347,14 +1351,14 @@ function showRobotDayDetail(day) {
     if (robotMissionDistChart) robotMissionDistChart.destroy()
     robotMissionDistChart = new Chart(document.getElementById('robotMissionDistChart'), {
         type: 'line',
-        data: { labels, datasets: [{ label: 'Mission (m)', data: missionDistValues, borderColor: '#0288d1', backgroundColor: 'rgba(2,136,209,0.12)', fill: true, tension: 0.3, spanGaps: true }] },
+        data: { labels, datasets: [{ label: 'Mission (m)', data: missionDistValues, borderColor: '#0288d1', backgroundColor: 'rgba(2,136,209,0.12)', fill: true, tension: 0.3, spanGaps: true, pointRadius: _CHART_PT }] },
         options: { responsive: true, plugins: { tooltip: { callbacks: { label: ctx => ctx.parsed.y !== null ? `${ctx.parsed.y.toFixed(0)} m` : '--' } } }, scales: { y: { min: 0, title: { display: true, text: 'm' } }, x: { ticks: { ..._CHART_X_TICKS } } } }
     })
 
     if (robotActualDistChart) robotActualDistChart.destroy()
     robotActualDistChart = new Chart(document.getElementById('robotActualDistChart'), {
         type: 'line',
-        data: { labels, datasets: [{ label: 'Thực tế (m)', data: actualDistValues, borderColor: '#f57c00', backgroundColor: 'rgba(245,124,0,0.12)', fill: true, tension: 0.3, spanGaps: true }] },
+        data: { labels, datasets: [{ label: 'Thực tế (m)', data: actualDistValues, borderColor: '#f57c00', backgroundColor: 'rgba(245,124,0,0.12)', fill: true, tension: 0.3, spanGaps: true, pointRadius: _CHART_PT }] },
         options: { responsive: true, plugins: { tooltip: { callbacks: { label: ctx => ctx.parsed.y !== null ? `${ctx.parsed.y.toFixed(0)} m` : '--' } } }, scales: { y: { min: 0, title: { display: true, text: 'm' } }, x: { ticks: { ..._CHART_X_TICKS } } } }
     })
 
