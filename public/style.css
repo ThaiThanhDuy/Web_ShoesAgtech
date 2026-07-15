@@ -1110,8 +1110,11 @@ tbody tr:hover { background: var(--blue-50); }
     /* Pane margins */
     .pane.table-wrap { margin: 10px 10px 14px; }
 
-    /* Tables — ensure min-width so they scroll rather than squish */
-    table { min-width: 520px; }
+    /* Data tables — ensure min-width so they scroll rather than squish.
+       Scoped to .table-wrap to avoid affecting the compare modal table. */
+    .table-wrap table { min-width: 520px; }
+    /* Compare modal table: let it scroll within the modal */
+    .modal-box { overflow-x: auto; }
 
     /* Map pane — stack day panel below map on portrait screens */
     #mapPane.pane {
