@@ -900,6 +900,11 @@ function showDayDetail(day, pond) {
     setViewMode('day-detail')
 }
 
+// Bản ghi cũ trước khi có cột func đều là khảo sát "Cho ăn" — coi null/thiếu là feed.
+// Biểu đồ lượng ăn/nhá cữ trong ngày chỉ có ý nghĩa với dữ liệu Cho ăn (đơn vị kg);
+// trộn lẫn dữ liệu Phun chất lỏng (lít)/Rải chất rắn vào sẽ làm sai tổng.
+function isFeedRec(r) { return !r.func || r.func === 'Cho ăn' }
+
 function _renderDayFeedingCharts(day, pond) {
     const QUESTIONS = [
         {
@@ -915,6 +920,7 @@ function _renderDayFeedingCharts(day, pond) {
     ]
 
     const dayRecs = _feedingRecords.filter(r => {
+        if (!isFeedRec(r)) return false
         if (!r.captured_at) return false
         if (new Date(r.captured_at).toLocaleDateString('vi-VN') !== day) return false
         if (pond !== undefined && pond !== null) {
@@ -1467,8 +1473,8 @@ function _renderPondCompare() {
             if (alk !== null && !isNaN(alk)) byPond[pond].alkVals.push(alk)
         })
     })
-    // merge feeding totals per pond
-    _feedingRecords.forEach(r => {
+    // merge feeding totals per pond (chỉ tính dữ liệu "Cho ăn" — cùng đơn vị kg)
+    _feedingRecords.filter(isFeedRec).forEach(r => {
         const pond = (r.pond_idx !== null && r.pond_idx !== undefined) ? Number(r.pond_idx) : 0
         if (!byPond[pond]) byPond[pond] = { pond, phVals: [], alkVals: [], foodKg: 0 }
         byPond[pond].foodKg += (r.food_kg !== null && r.food_kg !== undefined) ? Number(r.food_kg) : 0
@@ -1575,14 +1581,18 @@ function _renderFeedingTable() {
     tbody.innerHTML = ''
 
     sorted.forEach(r => {
-        const ts = r.captured_at ? new Date(r.captured_at).toLocaleString('vi-VN') : '--'
+        const ts     = r.captured_at ? new Date(r.captured_at).toLocaleString('vi-VN') : '--'
+        const amount = r.food_kg !== null && r.food_kg !== undefined
+            ? `${Number(r.food_kg).toFixed(1)} ${r.unit || 'kg'}` : '--'
         const tr = document.createElement('tr')
         tr.innerHTML = `
             <td>${r.id}</td>
+            <td>${r.func ?? 'Cho ăn'}</td>
             <td>Ao ${r.pond_idx ?? '--'}</td>
             <td>${r.buoi ?? '--'}</td>
             <td>${r.feedback ?? '--'}</td>
-            <td>${r.food_kg !== null && r.food_kg !== undefined ? Number(r.food_kg).toFixed(1) : '--'}</td>
+            <td>${r.category ?? '--'}</td>
+            <td>${amount}</td>
             <td>${r.decision ?? '--'}</td>
             <td>${r.route ?? '--'}</td>
             <td>${ts}</td>
@@ -1680,15 +1690,18 @@ function exportFeedDay() {
         return true
     }).slice().sort((a, b) => new Date(a.captured_at) - new Date(b.captured_at))
 
-    const headers = ['STT', 'Thời gian', 'Robot', 'Ao', 'Buổi', 'Lượng (kg)', 'Nhá cữ', 'Quyết định', 'Đường chạy']
+    const headers = ['STT', 'Thời gian', 'Robot', 'Chức năng', 'Ao', 'Buổi', 'Nhá cữ', 'Loại', 'Lượng dùng', 'Đơn vị', 'Quyết định', 'Đường chạy']
     const rows = recs.map((r, i) => [
         i + 1,
         r.captured_at ? new Date(r.captured_at).toLocaleString('vi-VN') : '',
         r.device_id ?? '',
+        r.func ?? 'Cho ăn',
         r.pond_idx ?? '',
         r.buoi ?? '',
-        r.food_kg !== null && r.food_kg !== undefined ? Number(r.food_kg).toFixed(2) : '',
         r.feedback ?? '',
+        r.category ?? '',
+        r.food_kg !== null && r.food_kg !== undefined ? Number(r.food_kg).toFixed(2) : '',
+        r.unit ?? 'kg',
         r.decision ?? '',
         r.route ?? ''
     ])

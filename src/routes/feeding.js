@@ -10,8 +10,11 @@ async function _ensureTable(conn) {
             device_id   VARCHAR(64) NOT NULL,
             pond_idx    INT,
             buoi        VARCHAR(20),
+            func        VARCHAR(30),
             food_kg     FLOAT,
+            unit        VARCHAR(5),
             feedback    VARCHAR(100),
+            category    VARCHAR(100),
             decision    VARCHAR(100),
             route       VARCHAR(100),
             captured_at DATETIME NOT NULL,
@@ -19,6 +22,26 @@ async function _ensureTable(conn) {
             INDEX idx_device_captured (device_id, captured_at)
         ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
     `)
+}
+
+// Adds columns introduced after FEEDING_DATA already existed in older deployments
+// (CREATE TABLE IF NOT EXISTS above is a no-op once the table is present).
+async function _ensureColumns(conn) {
+    const [cols] = await conn.query(
+        `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'FEEDING_DATA'`
+    )
+    const have = new Set(cols.map(c => c.COLUMN_NAME))
+    const wanted = [
+        ['func',     "VARCHAR(30)"],
+        ['unit',     "VARCHAR(5)"],
+        ['category', "VARCHAR(100)"]
+    ]
+    for (const [name, ddl] of wanted) {
+        if (!have.has(name)) {
+            await conn.query(`ALTER TABLE FEEDING_DATA ADD COLUMN ${name} ${ddl}`)
+        }
+    }
 }
 
 async function _renumberIds(conn) {
@@ -29,12 +52,13 @@ async function _renumberIds(conn) {
     return countRows[0].cnt
 }
 
-// Ensure table exists once at module load — removes the need to call _ensureTable
-// on every GET request (which was the primary waste).
+// Ensure table/columns exist once at module load — removes the need to call
+// _ensureTable on every GET request (which was the primary waste).
 ;(async () => {
     try {
         const c = await pool.getConnection()
         await _ensureTable(c)
+        await _ensureColumns(c)
         c.release()
     } catch (e) {
         console.warn('FEEDING_DATA table init warning:', e.message)
@@ -43,7 +67,9 @@ async function _renumberIds(conn) {
 
 // POST /api/feeding/batch
 // Headers: x-username, x-password (device account)
-// Body: { deviceId, records: [{ts, robot, pondIdx, buoi, foodKg, feedback, decision, route}] }
+// Body: { deviceId, records: [{ts, robot, pondIdx, buoi, func, amount, unit, feedback, category, decision, route}] }
+// func: "Cho ăn" | "Phun chất lỏng" | "Rải chất rắn" — which welcome-screen button
+// started the survey. amount/unit: kg for Cho ăn & Rải chất rắn, L for Phun chất lỏng.
 router.post('/batch', requireDeviceAuth, async (req, res) => {
     const { deviceId, records } = req.body || {}
 
@@ -63,10 +89,10 @@ router.post('/batch', requireDeviceAuth, async (req, res) => {
             const capturedAt = r.ts ? new Date(r.ts) : new Date()
             await conn.query(
                 `INSERT INTO FEEDING_DATA
-                    (device_id, pond_idx, buoi, food_kg, feedback, decision, route, captured_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-                [devId, r.pondIdx ?? null, r.buoi ?? null, r.foodKg ?? null,
-                 r.feedback ?? null, r.decision ?? null, r.route ?? null, capturedAt]
+                    (device_id, pond_idx, buoi, func, food_kg, unit, feedback, category, decision, route, captured_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [devId, r.pondIdx ?? null, r.buoi ?? null, r.func ?? null, r.amount ?? null, r.unit ?? null,
+                 r.feedback ?? null, r.category ?? null, r.decision ?? null, r.route ?? null, capturedAt]
             )
             inserted++
         }
