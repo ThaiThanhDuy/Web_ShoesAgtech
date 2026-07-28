@@ -68,8 +68,7 @@ let phAmLineChartInstance = null
 let phPmLineChartInstance = null
 let alkLineChartInstance = null
 let tempLineChartInstance = null
-let _dayFeedBarChartInst = null
-let _dayFeedPieInsts = []
+let _dayFeedChartInsts = []
 
 const map = L.map('map').setView([0, 0], 2)
 
@@ -901,26 +900,39 @@ function showDayDetail(day, pond) {
 }
 
 // Bản ghi cũ trước khi có cột func đều là khảo sát "Cho ăn" — coi null/thiếu là feed.
-// Biểu đồ lượng ăn/nhá cữ trong ngày chỉ có ý nghĩa với dữ liệu Cho ăn (đơn vị kg);
-// trộn lẫn dữ liệu Phun chất lỏng (lít)/Rải chất rắn vào sẽ làm sai tổng.
 function isFeedRec(r) { return !r.func || r.func === 'Cho ăn' }
+function _recFunc(r) { return r.func || 'Cho ăn' }
+
+// Mỗi chức năng có đơn vị lượng dùng và câu hỏi "loại/nhá cữ" riêng — không được
+// gộp chung (vd cộng lít của Phun chất lỏng với kg của Cho ăn/Rải chất rắn).
+const FUNC_CHART_CONFIG = {
+    'Cho ăn': {
+        unit: 'kg', amountLabel: 'Lượng ăn', lineColor: '#16a34a',
+        detailKey: 'feedback', detailTitle: 'Nhá cữ',
+        detailLabels: ['Hết', 'Còn ít', 'Còn nhiều', 'Không kiểm tra'],
+        detailColors: ['#4caf50', '#ffb300', '#ef5350', '#90a4ae']
+    },
+    'Phun chất lỏng': {
+        unit: 'L', amountLabel: 'Lượng phun', lineColor: '#0284c7',
+        detailKey: 'category', detailTitle: 'Loại',
+        detailLabels: ['Vi sinh xử lý nước', 'Vi sinh xử lý đáy', 'Khoáng/chất bổ sung',
+                       'Nguồn carbon', 'Chất xử lý môi trường', 'Chất sát khuẩn', 'Khác'],
+        detailColors: ['#26a69a', '#00897b', '#ffb300', '#8d6e63', '#5c6bc0', '#ef5350', '#90a4ae']
+    },
+    'Rải chất rắn': {
+        unit: 'kg', amountLabel: 'Lượng rải', lineColor: '#c2410c',
+        detailKey: 'category', detailTitle: 'Loại',
+        detailLabels: ['Khoáng', 'Vôi/chất điều chỉnh môi trường', 'Zeolite/chất hấp phụ',
+                       'Vi sinh dạng bột', 'Phân gây màu', 'Chế phẩm xử lý đáy', 'Khác'],
+        detailColors: ['#ffb300', '#8d6e63', '#78909c', '#4caf50', '#ef5350', '#5c6bc0', '#90a4ae']
+    }
+}
+const ROUTE_LABELS = ['Đường chạy cũ', 'Đường chạy mới']
+const ROUTE_COLORS = ['#5c6bc0', '#26c6da']
+const _slug = s => s.replace(/\s+/g, '_')
 
 function _renderDayFeedingCharts(day, pond) {
-    const QUESTIONS = [
-        {
-            key: 'feedback', title: 'Nhá cữ',
-            labels: ['Hết', 'Còn ít', 'Còn nhiều', 'Không kiểm tra'],
-            colors: ['#4caf50', '#ffb300', '#ef5350', '#90a4ae']
-        },
-        {
-            key: 'route', title: 'Đường chạy',
-            labels: ['Đường chạy cũ', 'Đường chạy mới'],
-            colors: ['#5c6bc0', '#26c6da']
-        }
-    ]
-
     const dayRecs = _feedingRecords.filter(r => {
-        if (!isFeedRec(r)) return false
         if (!r.captured_at) return false
         if (new Date(r.captured_at).toLocaleDateString('vi-VN') !== day) return false
         if (pond !== undefined && pond !== null) {
@@ -934,93 +946,116 @@ function _renderDayFeedingCharts(day, pond) {
     if (dayRecs.length === 0) { section.classList.add('hidden'); return }
     section.classList.remove('hidden')
 
-    const byPond = {}
-    dayRecs.forEach(r => {
-        const pond = (r.pond_idx !== null && r.pond_idx !== undefined) ? Number(r.pond_idx) : 0
-        if (!byPond[pond]) {
-            byPond[pond] = { totalKg: 0, feedback: {}, route: {} }
-        }
-        byPond[pond].totalKg += (r.food_kg !== null && r.food_kg !== undefined) ? Number(r.food_kg) : 0
-        QUESTIONS.forEach(q => {
-            const val = r[q.key] || '--'
-            byPond[pond][q.key][val] = (byPond[pond][q.key][val] || 0) + 1
-        })
-    })
-    const ponds = Object.keys(byPond).map(Number).sort((a, b) => a - b)
+    _dayFeedChartInsts.forEach(c => c.destroy())
+    _dayFeedChartInsts = []
+    const content = document.getElementById('dayFeedingContent')
+    content.innerHTML = ''
 
-    // line chart — food amount over time (individual records, sorted by time)
-    const feedSorted = dayRecs.slice().sort((a, b) => new Date(a.captured_at) - new Date(b.captured_at))
-    const feedLabels = feedSorted.map(r => new Date(r.captured_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }))
-    const feedValsLine = feedSorted.map(r => (r.food_kg !== null && r.food_kg !== undefined) ? Number(r.food_kg) : null)
+    Object.keys(FUNC_CHART_CONFIG).forEach(func => {
+        const cfg  = FUNC_CHART_CONFIG[func]
+        const recs = dayRecs.filter(r => _recFunc(r) === func)
+        if (recs.length === 0) return
 
-    if (_dayFeedBarChartInst) _dayFeedBarChartInst.destroy()
-    _dayFeedBarChartInst = new Chart(document.getElementById('dayFeedBarChart'), {
-        type: 'line',
-        data: {
-            labels: feedLabels,
-            datasets: [{
-                label: 'Lượng ăn (kg)',
-                data: feedValsLine,
-                borderColor: '#16a34a',
-                backgroundColor: 'rgba(22,163,74,0.10)',
-                fill: true,
-                tension: 0.3,
-                pointRadius: 5,
-                pointBackgroundColor: '#16a34a',
-                borderWidth: 2
-            }]
-        },
-        options: {
-            responsive: true,
-            plugins: {
-                legend: { display: true, labels: { color: '#4d6478', font: { size: 12 } } },
-                tooltip: { callbacks: { label: ctx => `${ctx.parsed.y.toFixed(2)} kg` } }
+        const key = _slug(func)
+        const block = document.createElement('div')
+        block.innerHTML = `
+            <div class="feed-pond-title">${func}</div>
+            <div class="stats-charts-grid">
+                <div class="chart-card">
+                    <div class="gauge-title">Diễn biến ${cfg.amountLabel} trong ngày (${cfg.unit})</div>
+                    <canvas id="dayFeedLine_${key}"></canvas>
+                </div>
+                <div class="feed-pie-wrap" id="dayFeedPieWrap_${key}"></div>
+            </div>
+        `
+        content.appendChild(block)
+
+        // line chart — amount over time for this function
+        const sorted = recs.slice().sort((a, b) => new Date(a.captured_at) - new Date(b.captured_at))
+        const labels = sorted.map(r => new Date(r.captured_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }))
+        const vals   = sorted.map(r => (r.food_kg !== null && r.food_kg !== undefined) ? Number(r.food_kg) : null)
+
+        _dayFeedChartInsts.push(new Chart(document.getElementById(`dayFeedLine_${key}`), {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [{
+                    label: `${cfg.amountLabel} (${cfg.unit})`,
+                    data: vals,
+                    borderColor: cfg.lineColor,
+                    backgroundColor: cfg.lineColor + '1a',
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 5,
+                    pointBackgroundColor: cfg.lineColor,
+                    borderWidth: 2
+                }]
             },
-            scales: {
-                y: { min: 0, title: { display: true, text: 'kg' }, grid: { color: 'rgba(0,0,0,0.05)' } },
-                x: { grid: { color: 'rgba(0,0,0,0.05)' } }
-            }
-        }
-    })
-
-    // pie charts — 4 questions × N ponds
-    _dayFeedPieInsts.forEach(c => c.destroy())
-    _dayFeedPieInsts = []
-    const wrap = document.getElementById('dayFeedPieWrap')
-    wrap.innerHTML = ''
-
-    ponds.forEach(pond => {
-        const pondSection = document.createElement('div')
-        pondSection.className = 'feed-pond-section'
-        pondSection.innerHTML = `<div class="feed-pond-title">Ao ${pond} — ${byPond[pond].totalKg.toFixed(1)} kg</div><div class="feed-pie-row" id="feedPieRow_${pond}"></div>`
-        wrap.appendChild(pondSection)
-
-        const row = document.getElementById(`feedPieRow_${pond}`)
-        QUESTIONS.forEach((q, qi) => {
-            const counts = q.labels.map(lb => byPond[pond][q.key][lb] || 0)
-            const total  = counts.reduce((a, b) => a + b, 0)
-            if (total === 0) return
-            const pctLabels = q.labels.map((lb, i) =>
-                total > 0 ? `${lb} (${Math.round(counts[i] / total * 100)}%)` : lb)
-            const card = document.createElement('div')
-            card.className = 'feed-pie-card chart-card'
-            card.innerHTML = `<div class="feed-pie-label">${q.title}</div><canvas id="feedPie_${pond}_${qi}"></canvas>`
-            row.appendChild(card)
-            const inst = new Chart(document.getElementById(`feedPie_${pond}_${qi}`), {
-                type: 'pie',
-                data: {
-                    labels: pctLabels,
-                    datasets: [{ data: counts, backgroundColor: q.colors, borderWidth: 1 }]
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { display: true, labels: { color: '#4d6478', font: { size: 12 } } },
+                    tooltip: { callbacks: { label: ctx => `${ctx.parsed.y.toFixed(2)} ${cfg.unit}` } }
                 },
-                options: {
-                    responsive: true,
-                    plugins: {
-                        legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12 } },
-                        tooltip: { callbacks: { label: ctx => `${ctx.label}: ${ctx.parsed} lần` } }
-                    }
+                scales: {
+                    y: { min: 0, title: { display: true, text: cfg.unit }, grid: { color: 'rgba(0,0,0,0.05)' } },
+                    x: { grid: { color: 'rgba(0,0,0,0.05)' } }
                 }
+            }
+        }))
+
+        // pie charts — [Nhá cữ/Loại, Đường chạy] × N ponds, chỉ trong phạm vi chức năng này
+        const byPond = {}
+        recs.forEach(r => {
+            const p = (r.pond_idx !== null && r.pond_idx !== undefined) ? Number(r.pond_idx) : 0
+            if (!byPond[p]) byPond[p] = { totalAmount: 0, detail: {}, route: {} }
+            byPond[p].totalAmount += (r.food_kg !== null && r.food_kg !== undefined) ? Number(r.food_kg) : 0
+            const dVal = r[cfg.detailKey] || '--'
+            byPond[p].detail[dVal] = (byPond[p].detail[dVal] || 0) + 1
+            const rVal = r.route || '--'
+            byPond[p].route[rVal] = (byPond[p].route[rVal] || 0) + 1
+        })
+        const ponds   = Object.keys(byPond).map(Number).sort((a, b) => a - b)
+        const pieWrap = document.getElementById(`dayFeedPieWrap_${key}`)
+
+        ponds.forEach(p => {
+            const pondSection = document.createElement('div')
+            pondSection.className = 'feed-pond-section'
+            const rowId = `dayFeedPieRow_${key}_${p}`
+            pondSection.innerHTML = `<div class="feed-pond-title">Ao ${p} — ${byPond[p].totalAmount.toFixed(1)} ${cfg.unit}</div><div class="feed-pie-row" id="${rowId}"></div>`
+            pieWrap.appendChild(pondSection)
+            const row = document.getElementById(rowId)
+
+            const pies = [
+                { title: cfg.detailTitle, labels: cfg.detailLabels, colors: cfg.detailColors, counts: byPond[p].detail },
+                { title: 'Đường chạy',    labels: ROUTE_LABELS,     colors: ROUTE_COLORS,     counts: byPond[p].route }
+            ]
+            pies.forEach((pie, pi) => {
+                const counts = pie.labels.map(lb => pie.counts[lb] || 0)
+                const total  = counts.reduce((a, b) => a + b, 0)
+                if (total === 0) return
+                const pctLabels = pie.labels.map((lb, i) =>
+                    total > 0 ? `${lb} (${Math.round(counts[i] / total * 100)}%)` : lb)
+                const card = document.createElement('div')
+                card.className = 'feed-pie-card chart-card'
+                const canvasId = `dayFeedPie_${key}_${p}_${pi}`
+                card.innerHTML = `<div class="feed-pie-label">${pie.title}</div><canvas id="${canvasId}"></canvas>`
+                row.appendChild(card)
+                _dayFeedChartInsts.push(new Chart(document.getElementById(canvasId), {
+                    type: 'pie',
+                    data: {
+                        labels: pctLabels,
+                        datasets: [{ data: counts, backgroundColor: pie.colors, borderWidth: 1 }]
+                    },
+                    options: {
+                        responsive: true,
+                        plugins: {
+                            legend: { position: 'bottom', labels: { font: { size: 11 }, boxWidth: 12 } },
+                            tooltip: { callbacks: { label: ctx => `${ctx.label}: ${ctx.parsed} lần` } }
+                        }
+                    }
+                }))
             })
-            _dayFeedPieInsts.push(inst)
         })
     })
 }
