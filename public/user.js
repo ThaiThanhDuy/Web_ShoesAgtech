@@ -1195,6 +1195,15 @@ setInterval(checkForNewData, 20000)
 // Shows exactly one of the 6 panes (table/map/stats/robot/day-detail/info) and
 // updates the drawer's active item ('day-detail' is a drill-down from
 // 'stats', not a drawer item itself, so nothing gets highlighted for it).
+// 3 mục drawer riêng cho từng chức năng khảo sát, dùng chung 1 pane/bảng —
+// _renderFeedingTable() lọc theo FEEDING_VIEW_FUNC[currentViewMode].
+const FEEDING_VIEW_FUNC = {
+    'feeding-feed':  'Cho ăn',
+    'feeding-spray': 'Phun chất lỏng',
+    'feeding-solid': 'Rải chất rắn'
+}
+const _isFeedingView = mode => Object.prototype.hasOwnProperty.call(FEEDING_VIEW_FUNC, mode)
+
 function setViewMode(mode) {
     currentViewMode = mode
     document.querySelectorAll('.drawer-item').forEach(el => el.classList.toggle('active', el.dataset.view === mode))
@@ -1205,7 +1214,7 @@ function setViewMode(mode) {
     document.getElementById('robotPane').classList.toggle('hidden', mode !== 'robot')
     document.getElementById('robotDayDetailPane').classList.toggle('hidden', mode !== 'robot-day-detail')
     document.getElementById('dayDetailPane').classList.toggle('hidden', mode !== 'day-detail')
-    document.getElementById('feedingPane').classList.toggle('hidden', mode !== 'feeding')
+    document.getElementById('feedingPane').classList.toggle('hidden', !_isFeedingView(mode))
     document.getElementById('infoPane').classList.toggle('hidden', mode !== 'info')
 
     document.getElementById('mapSaveBtn').classList.toggle('hidden', mode !== 'map')
@@ -1225,7 +1234,10 @@ function setViewMode(mode) {
     }
     if (mode === 'info') loadProfile()
     if (mode === 'robot') loadRobotData()
-    if (mode === 'feeding') loadFeedingData()
+    if (_isFeedingView(mode)) {
+        document.getElementById('feedingPaneTitle').textContent = `Dữ liệu ${FEEDING_VIEW_FUNC[mode]}`
+        loadFeedingData()
+    }
     closeDrawer()
 }
 
@@ -1484,7 +1496,7 @@ document.getElementById('mapClearBtn').addEventListener('click', () => {
 document.getElementById('refreshBtn').addEventListener('click', () => {
     if (currentViewMode === 'robot') {
         loadRobotData(true)
-    } else if (currentViewMode === 'feeding') {
+    } else if (_isFeedingView(currentViewMode)) {
         loadFeedingData(true)
     } else {
         loadBoardData()
@@ -1602,7 +1614,9 @@ function _feedingSortBy(key) {
 }
 
 function _renderFeedingTable() {
-    const sorted = _feedingRecords.slice().sort((a, b) => {
+    const activeFunc = FEEDING_VIEW_FUNC[currentViewMode]
+    const scoped = activeFunc ? _feedingRecords.filter(r => (r.func || 'Cho ăn') === activeFunc) : _feedingRecords
+    const sorted = scoped.slice().sort((a, b) => {
         const av = a[_feedingSortKey]
         const bv = b[_feedingSortKey]
         if (av === null || av === undefined) return 1
@@ -1655,7 +1669,9 @@ function _renderFeedingTable() {
 let _feedingDataLoaded = false
 
 async function loadFeedingData(force = false) {
-    if (_feedingDataLoaded && !force) return
+    // Dữ liệu dùng chung cho cả 3 tab chức năng — đổi tab không cần fetch lại,
+    // nhưng vẫn phải render lại để áp bộ lọc chức năng mới (FEEDING_VIEW_FUNC).
+    if (_feedingDataLoaded && !force) { _renderFeedingTable(); return }
     try {
         const res = await fetch(apiUrl('/api/feeding'), { headers: authHeaders() })
         if (!res.ok) return
